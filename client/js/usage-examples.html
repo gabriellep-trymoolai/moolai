@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>MoolAI Real-time Client Examples</title>
+	<style>
+		body {
+			font-family: Arial, sans-serif;
+			max-width: 1200px;
+			margin: 0 auto;
+			padding: 20px;
+			line-height: 1.6;
+		}
+		.example {
+			background: #f5f5f5;
+			padding: 20px;
+			margin: 20px 0;
+			border-radius: 8px;
+		}
+		.status {
+			padding: 10px;
+			margin: 10px 0;
+			border-radius: 4px;
+		}
+		.connected { background: #d4edda; color: #155724; }
+		.disconnected { background: #f8d7da; color: #721c24; }
+		.connecting { background: #fff3cd; color: #856404; }
+		.error { background: #f8d7da; color: #721c24; }
+		.log {
+			background: #fff;
+			border: 1px solid #ddd;
+			padding: 10px;
+			height: 200px;
+			overflow-y: auto;
+			font-family: monospace;
+			font-size: 12px;
+		}
+		button {
+			background: #007bff;
+			color: white;
+			border: none;
+			padding: 8px 16px;
+			border-radius: 4px;
+			cursor: pointer;
+			margin: 5px;
+		}
+		button:disabled {
+			background: #6c757d;
+			cursor: not-allowed;
+		}
+		button:hover:not(:disabled) {
+			background: #0056b3;
+		}
+		input, select {
+			padding: 5px;
+			margin: 5px;
+			border: 1px solid #ddd;
+			border-radius: 4px;
+		}
+		.metrics-display {
+			display: grid;
+			grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+			gap: 15px;
+			margin: 15px 0;
+		}
+		.metric-card {
+			background: white;
+			border: 1px solid #ddd;
+			border-radius: 8px;
+			padding: 15px;
+			text-align: center;
+		}
+		.metric-value {
+			font-size: 24px;
+			font-weight: bold;
+			color: #007bff;
+		}
+		.metric-label {
+			font-size: 14px;
+			color: #666;
+			margin-top: 5px;
+		}
+	</style>
+</head>
+<body>
+	<h1>MoolAI Real-time Client Examples</h1>
+	
+	<!-- SSE Example -->
+	<div class="example">
+		<h2>Server-Sent Events (SSE) Example</h2>
+		<p>Real-time metrics streaming using SSE</p>
+		
+		<div>
+			<label>Organization ID:</label>
+			<input type="text" id="sse-org-id" value="org-123" />
+			
+			<label>User ID:</label>
+			<input type="text" id="sse-user-id" value="user-456" />
+			
+			<label>Stream Type:</label>
+			<select id="sse-stream-type">
+				<option value="user">User Metrics</option>
+				<option value="org">Organization Metrics</option>
+				<option value="health">System Health</option>
+			</select>
+		</div>
+		
+		<div>
+			<button id="sse-connect">Connect SSE</button>
+			<button id="sse-disconnect" disabled>Disconnect</button>
+		</div>
+		
+		<div class="status" id="sse-status">Disconnected</div>
+		
+		<div class="metrics-display" id="sse-metrics">
+			<div class="metric-card">
+				<div class="metric-value" id="total-requests">0</div>
+				<div class="metric-label">Total Requests</div>
+			</div>
+			<div class="metric-card">
+				<div class="metric-value" id="total-cost">$0.00</div>
+				<div class="metric-label">Total Cost</div>
+			</div>
+			<div class="metric-card">
+				<div class="metric-value" id="active-users">0</div>
+				<div class="metric-label">Active Users</div>
+			</div>
+			<div class="metric-card">
+				<div class="metric-value" id="error-rate">0%</div>
+				<div class="metric-label">Error Rate</div>
+			</div>
+		</div>
+		
+		<div class="log" id="sse-log"></div>
+	</div>
+	
+	<!-- WebSocket Example -->
+	<div class="example">
+		<h2>WebSocket Example</h2>
+		<p>Bidirectional communication for admin control</p>
+		
+		<div>
+			<label>Organization ID:</label>
+			<input type="text" id="ws-org-id" value="org-123" />
+			
+			<label>Auth Token:</label>
+			<input type="text" id="ws-token" value="admin-token-123" />
+		</div>
+		
+		<div>
+			<button id="ws-connect">Connect WebSocket</button>
+			<button id="ws-disconnect" disabled>Disconnect</button>
+			<button id="ws-authenticate" disabled>Authenticate</button>
+		</div>
+		
+		<div class="status" id="ws-status">Disconnected</div>
+		
+		<div>
+			<h3>Admin Commands</h3>
+			<button id="ws-get-status" disabled>Get Status</button>
+			<button id="ws-clear-cache" disabled>Clear Cache</button>
+			<button id="ws-restart-service" disabled>Restart Service</button>
+		</div>
+		
+		<div>
+			<h3>Channel Subscription</h3>
+			<input type="text" id="ws-channels" placeholder="Enter channels (comma-separated)" value="admin:org-123,logs:org-123" />
+			<button id="ws-subscribe" disabled>Subscribe</button>
+			<button id="ws-unsubscribe" disabled>Unsubscribe</button>
+		</div>
+		
+		<div class="log" id="ws-log"></div>
+	</div>
+	
+	<!-- Combined Example -->
+	<div class="example">
+		<h2>Combined Dashboard Example</h2>
+		<p>Real-time dashboard combining SSE metrics and WebSocket control</p>
+		
+		<div>
+			<button id="dashboard-start">Start Dashboard</button>
+			<button id="dashboard-stop" disabled>Stop Dashboard</button>
+		</div>
+		
+		<div class="status" id="dashboard-status">Stopped</div>
+		
+		<div id="dashboard-content" style="display: none;">
+			<h3>Live System Status</h3>
+			<div id="system-health"></div>
+			
+			<h3>Real-time Metrics</h3>
+			<div id="live-metrics"></div>
+			
+			<h3>Recent Events</h3>
+			<div class="log" id="dashboard-log"></div>
+		</div>
+	</div>
+
+	<script src="moolai-realtime.js"></script>
+	<script>
+		// SSE Example Implementation
+		let sseClient = null;
+		
+		document.getElementById('sse-connect').addEventListener('click', () => {
+			const orgId = document.getElementById('sse-org-id').value;
+			const userId = document.getElementById('sse-user-id').value;
+			const streamType = document.getElementById('sse-stream-type').value;
+			
+			// Create SSE client
+			sseClient = new MoolAI.SSEClient('http://localhost:8000');
+			
+			// Set up event listeners
+			sseClient.on('connected', (data) => {
+				updateSSEStatus('connected', `Connected: ${data.connection_id}`);
+				document.getElementById('sse-connect').disabled = true;
+				document.getElementById('sse-disconnect').disabled = false;
+			});
+			
+			sseClient.on('disconnected', () => {
+				updateSSEStatus('disconnected', 'Disconnected');
+				document.getElementById('sse-connect').disabled = false;
+				document.getElementById('sse-disconnect').disabled = true;
+			});
+			
+			sseClient.on('user_metrics', (data) => {
+				logSSE('User Metrics:', data);
+				updateMetrics(data);
+			});
+			
+			sseClient.on('org_metrics', (data) => {
+				logSSE('Organization Metrics:', data);
+				updateMetrics(data);
+			});
+			
+			sseClient.on('metrics_snapshot', (data) => {
+				logSSE('Metrics Snapshot:', data);
+				updateMetrics(data.metrics);
+			});
+			
+			sseClient.on('health_update', (data) => {
+				logSSE('Health Update:', data);
+			});
+			
+			sseClient.on('heartbeat', (data) => {
+				logSSE('Heartbeat:', data.timestamp);
+			});
+			
+			// Determine endpoint based on stream type
+			let endpoint, params;
+			if (streamType === 'user') {
+				endpoint = `/api/v1/stream/metrics/users/${userId}`;
+				params = { organization_id: orgId };
+			} else if (streamType === 'org') {
+				endpoint = '/api/v1/stream/metrics/organization';
+				params = { organization_id: orgId };
+			} else if (streamType === 'health') {
+				endpoint = '/api/v1/stream/system/health';
+				params = { organization_id: orgId };
+			}
+			
+			// Connect
+			updateSSEStatus('connecting', 'Connecting...');
+			sseClient.connect(endpoint, params).catch(error => {
+				updateSSEStatus('error', `Error: ${error.message}`);
+				logSSE('Connection Error:', error);
+			});
+		});
+		
+		document.getElementById('sse-disconnect').addEventListener('click', () => {
+			if (sseClient) {
+				sseClient.disconnect();
+				sseClient = null;
+			}
+		});
+		
+		function updateSSEStatus(state, message) {
+			const statusEl = document.getElementById('sse-status');
+			statusEl.className = `status ${state}`;
+			statusEl.textContent = message;
+		}
+		
+		function logSSE(prefix, data) {
+			const logEl = document.getElementById('sse-log');
+			const timestamp = new Date().toLocaleTimeString();
+			logEl.innerHTML += `[${timestamp}] ${prefix} ${JSON.stringify(data, null, 2)}\n`;
+			logEl.scrollTop = logEl.scrollHeight;
+		}
+		
+		function updateMetrics(metrics) {
+			if (metrics.total_requests !== undefined) {
+				document.getElementById('total-requests').textContent = metrics.total_requests;
+			}
+			if (metrics.total_cost !== undefined) {
+				document.getElementById('total-cost').textContent = `$${metrics.total_cost.toFixed(2)}`;
+			}
+			if (metrics.active_users !== undefined) {
+				document.getElementById('active-users').textContent = metrics.active_users;
+			}
+			if (metrics.error_rate !== undefined) {
+				document.getElementById('error-rate').textContent = `${(metrics.error_rate * 100).toFixed(1)}%`;
+			}
+		}
+		
+		// WebSocket Example Implementation
+		let wsClient = null;
+		
+		document.getElementById('ws-connect').addEventListener('click', () => {
+			const orgId = document.getElementById('ws-org-id').value;
+			const token = document.getElementById('ws-token').value;
+			
+			// Create WebSocket client
+			wsClient = new MoolAI.WebSocketClient('ws://localhost:8000');
+			
+			// Set up event listeners
+			wsClient.on('connected', (data) => {
+				updateWSStatus('connected', `Connected: ${data.connection_id}`);
+				document.getElementById('ws-connect').disabled = true;
+				document.getElementById('ws-disconnect').disabled = false;
+				document.getElementById('ws-authenticate').disabled = false;
+			});
+			
+			wsClient.on('disconnected', () => {
+				updateWSStatus('disconnected', 'Disconnected');
+				document.getElementById('ws-connect').disabled = false;
+				document.getElementById('ws-disconnect').disabled = true;
+				document.getElementById('ws-authenticate').disabled = true;
+				disableWSCommands();
+			});
+			
+			wsClient.on('authenticated', (data) => {
+				logWS('Authenticated successfully:', data);
+				enableWSCommands();
+			});
+			
+			wsClient.on('success', (data) => {
+				logWS('Success:', data);
+			});
+			
+			wsClient.on('error', (data) => {
+				logWS('Error:', data);
+			});
+			
+			wsClient.on('command', (data) => {
+				logWS('Command received:', data);
+			});
+			
+			wsClient.on('config_update', (data) => {
+				logWS('Config update:', data);
+			});
+			
+			// Connect
+			updateWSStatus('connecting', 'Connecting...');
+			wsClient.connect('/ws/admin/control', { 
+				organization_id: orgId,
+				token: token 
+			}).catch(error => {
+				updateWSStatus('error', `Error: ${error.message}`);
+				logWS('Connection Error:', error);
+			});
+		});
+		
+		document.getElementById('ws-disconnect').addEventListener('click', () => {
+			if (wsClient) {
+				wsClient.disconnect();
+				wsClient = null;
+			}
+		});
+		
+		document.getElementById('ws-authenticate').addEventListener('click', () => {
+			const token = document.getElementById('ws-token').value;
+			if (wsClient) {
+				wsClient.authenticate(token).then(response => {
+					logWS('Authentication successful:', response);
+					enableWSCommands();
+				}).catch(error => {
+					logWS('Authentication failed:', error);
+				});
+			}
+		});
+		
+		// Admin command buttons
+		document.getElementById('ws-get-status').addEventListener('click', () => {
+			if (wsClient) {
+				wsClient.sendCommand('get_status').then(response => {
+					logWS('Status response:', response);
+				}).catch(error => {
+					logWS('Status error:', error);
+				});
+			}
+		});
+		
+		document.getElementById('ws-clear-cache').addEventListener('click', () => {
+			if (wsClient) {
+				wsClient.sendCommand('clear_cache', { type: 'all' }).then(response => {
+					logWS('Cache cleared:', response);
+				}).catch(error => {
+					logWS('Cache clear error:', error);
+				});
+			}
+		});
+		
+		document.getElementById('ws-restart-service').addEventListener('click', () => {
+			if (wsClient) {
+				wsClient.sendCommand('restart_service', { service: 'monitoring' }).then(response => {
+					logWS('Service restart:', response);
+				}).catch(error => {
+					logWS('Service restart error:', error);
+				});
+			}
+		});
+		
+		// Channel subscription
+		document.getElementById('ws-subscribe').addEventListener('click', () => {
+			const channels = document.getElementById('ws-channels').value.split(',').map(c => c.trim());
+			if (wsClient) {
+				wsClient.subscribe(channels).then(response => {
+					logWS('Subscribed to channels:', response);
+				}).catch(error => {
+					logWS('Subscription error:', error);
+				});
+			}
+		});
+		
+		document.getElementById('ws-unsubscribe').addEventListener('click', () => {
+			const channels = document.getElementById('ws-channels').value.split(',').map(c => c.trim());
+			if (wsClient) {
+				wsClient.unsubscribe(channels).then(response => {
+					logWS('Unsubscribed from channels:', response);
+				}).catch(error => {
+					logWS('Unsubscription error:', error);
+				});
+			}
+		});
+		
+		function updateWSStatus(state, message) {
+			const statusEl = document.getElementById('ws-status');
+			statusEl.className = `status ${state}`;
+			statusEl.textContent = message;
+		}
+		
+		function logWS(prefix, data) {
+			const logEl = document.getElementById('ws-log');
+			const timestamp = new Date().toLocaleTimeString();
+			logEl.innerHTML += `[${timestamp}] ${prefix} ${JSON.stringify(data, null, 2)}\n`;
+			logEl.scrollTop = logEl.scrollHeight;
+		}
+		
+		function enableWSCommands() {
+			document.getElementById('ws-get-status').disabled = false;
+			document.getElementById('ws-clear-cache').disabled = false;
+			document.getElementById('ws-restart-service').disabled = false;
+			document.getElementById('ws-subscribe').disabled = false;
+			document.getElementById('ws-unsubscribe').disabled = false;
+		}
+		
+		function disableWSCommands() {
+			document.getElementById('ws-get-status').disabled = true;
+			document.getElementById('ws-clear-cache').disabled = true;
+			document.getElementById('ws-restart-service').disabled = true;
+			document.getElementById('ws-subscribe').disabled = true;
+			document.getElementById('ws-unsubscribe').disabled = true;
+		}
+		
+		// Combined Dashboard Example
+		let dashboardSSE = null;
+		let dashboardWS = null;
+		
+		document.getElementById('dashboard-start').addEventListener('click', () => {
+			// Start both SSE and WebSocket connections
+			const orgId = 'org-123';
+			const userId = 'user-456';
+			const token = 'admin-token-123';
+			
+			// SSE for metrics
+			dashboardSSE = new MoolAI.SSEClient();
+			dashboardSSE.on('connected', () => {
+				logDashboard('SSE connected');
+			});
+			dashboardSSE.on('org_metrics', updateDashboardMetrics);
+			dashboardSSE.on('health_update', updateSystemHealth);
+			
+			dashboardSSE.connect('/api/v1/stream/metrics/organization', { 
+				organization_id: orgId 
+			});
+			
+			// WebSocket for control
+			dashboardWS = new MoolAI.WebSocketClient();
+			dashboardWS.on('connected', () => {
+				logDashboard('WebSocket connected');
+				dashboardWS.authenticate(token);
+			});
+			dashboardWS.on('authenticated', () => {
+				logDashboard('WebSocket authenticated');
+				dashboardWS.subscribe(['admin:' + orgId, 'alerts:' + orgId]);
+			});
+			
+			dashboardWS.connect('/ws/admin/control', { 
+				organization_id: orgId,
+				token: token 
+			});
+			
+			// Update UI
+			document.getElementById('dashboard-start').disabled = true;
+			document.getElementById('dashboard-stop').disabled = false;
+			document.getElementById('dashboard-content').style.display = 'block';
+			updateDashboardStatus('connected', 'Dashboard Active');
+		});
+		
+		document.getElementById('dashboard-stop').addEventListener('click', () => {
+			if (dashboardSSE) {
+				dashboardSSE.disconnect();
+				dashboardSSE = null;
+			}
+			if (dashboardWS) {
+				dashboardWS.disconnect();
+				dashboardWS = null;
+			}
+			
+			document.getElementById('dashboard-start').disabled = false;
+			document.getElementById('dashboard-stop').disabled = true;
+			document.getElementById('dashboard-content').style.display = 'none';
+			updateDashboardStatus('disconnected', 'Dashboard Stopped');
+		});
+		
+		function updateDashboardStatus(state, message) {
+			const statusEl = document.getElementById('dashboard-status');
+			statusEl.className = `status ${state}`;
+			statusEl.textContent = message;
+		}
+		
+		function logDashboard(message) {
+			const logEl = document.getElementById('dashboard-log');
+			const timestamp = new Date().toLocaleTimeString();
+			logEl.innerHTML += `[${timestamp}] ${message}\n`;
+			logEl.scrollTop = logEl.scrollHeight;
+		}
+		
+		function updateDashboardMetrics(data) {
+			const metricsEl = document.getElementById('live-metrics');
+			metricsEl.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+			logDashboard('Metrics updated');
+		}
+		
+		function updateSystemHealth(data) {
+			const healthEl = document.getElementById('system-health');
+			const status = data.status || 'unknown';
+			healthEl.innerHTML = `
+				<div class="status ${status}">
+					System Status: ${status.toUpperCase()}
+					<br>Component: ${data.component || 'unknown'}
+					<br>Message: ${data.message || 'No message'}
+				</div>
+			`;
+			logDashboard(`Health: ${status}`);
+		}
+	</script>
+</body>
+</html>

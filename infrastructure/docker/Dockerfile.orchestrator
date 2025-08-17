@@ -1,0 +1,89 @@
+# Multi-stage build for MoolAI Orchestrator Service
+FROM python:3.11-slim as builder
+
+# Set build arguments
+ARG BUILD_DATE
+ARG VCS_REF
+ARG VERSION=1.0.0
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /app
+
+# Copy orchestrator requirements
+COPY services/orchestrator/requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir --user -r requirements.txt
+
+# Production stage
+FROM python:3.11-slim as production
+
+# Set build arguments for labels
+ARG BUILD_DATE
+ARG VCS_REF
+ARG VERSION=1.0.0
+
+# Add labels for metadata
+LABEL org.moolai.service="orchestrator" \
+      org.moolai.version="${VERSION}" \
+      org.moolai.description="MoolAI AI Orchestrator Service" \
+      org.moolai.build-date="${BUILD_DATE}" \
+      org.moolai.vcs-ref="${VCS_REF}" \
+      org.opencontainers.image.title="MoolAI Orchestrator Service" \
+      org.opencontainers.image.description="AI workflow orchestration and management service" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.vendor="MoolAI" \
+      org.opencontainers.image.source="https://github.com/moolai/orchestrator"
+
+# Install runtime dependencies only
+RUN apt-get update && apt-get install -y \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Create app user and directory
+RUN groupadd -r moolai && useradd -r -g moolai moolai \
+    && mkdir -p /app /app/logs /app/data \
+    && chown -R moolai:moolai /app
+
+# Set working directory
+WORKDIR /app
+
+# Copy Python dependencies from builder stage
+COPY --from=builder --chown=moolai:moolai /root/.local /home/moolai/.local
+
+# Copy orchestrator application code
+COPY --chown=moolai:moolai services/orchestrator/app ./app/
+COPY --chown=moolai:moolai services/orchestrator/requirements.txt ./
+
+# Copy common modules for real-time communication
+COPY --chown=moolai:moolai common/ ./common/
+
+# Set environment variables
+ENV PYTHONPATH=/app \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH=/home/moolai/.local/bin:$PATH \
+    ORCHESTRATOR_PORT=8000 \
+    LOG_LEVEL=INFO
+
+# Expose orchestrator port
+EXPOSE 8000
+
+# Add health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Switch to non-root user
+USER moolai
+
+# Set default command
+CMD ["/usr/local/bin/python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

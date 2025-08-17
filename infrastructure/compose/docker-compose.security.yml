@@ -1,0 +1,201 @@
+# Docker Compose with Security Best Practices
+# This file demonstrates secure container deployment for MoolAI services
+
+version: '3.8'
+
+networks:
+  moolai-internal:
+    driver: bridge
+    internal: false
+    attachable: false
+  moolai-backend:
+    driver: bridge
+    internal: true
+    attachable: false
+
+volumes:
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+
+secrets:
+  db-password:
+    external: true
+  redis-password:
+    external: true
+  openai-api-key:
+    external: true
+
+services:
+  # PostgreSQL Database (Orchestrator-specific)
+  postgres-org-001:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    networks:
+      - moolai-backend
+    environment:
+      POSTGRES_DB: monitoring_org_001
+      POSTGRES_USER: monitoring_user
+      POSTGRES_PASSWORD_FILE: /run/secrets/db-password
+    secrets:
+      - db-password
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run/postgresql
+    user: "999:999"  # postgres user
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+
+  # Redis Cache (Orchestrator-specific)
+  redis-org-001:
+    image: redis:7-alpine
+    restart: unless-stopped
+    networks:
+      - moolai-backend
+    command: >
+      redis-server
+      --requirepass "$$(cat /run/secrets/redis-password)"
+      --appendonly yes
+      --appendfsync everysec
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+    secrets:
+      - redis-password
+    volumes:
+      - redis-data:/data
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    user: "999:999"  # redis user
+    cap_drop:
+      - ALL
+
+  # Orchestrator Service
+  orchestrator-org-001:
+    image: moolai/orchestrator:latest
+    restart: unless-stopped
+    depends_on:
+      - postgres-org-001
+      - redis-org-001
+    networks:
+      - moolai-internal
+      - moolai-backend
+    environment:
+      ORGANIZATION_ID: org_001
+      DATABASE_URL: postgresql+asyncpg://monitoring_user:@postgres-org-001:5432/monitoring_org_001
+      REDIS_URL: redis://:@redis-org-001:6379/0
+    secrets:
+      - openai-api-key
+    ports:
+      - "8000:8000"
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /app/logs
+    user: "1001:1001"  # moolai user
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Monitoring Service (Sidecar)
+  monitoring-org-001:
+    image: moolai/monitoring:latest
+    restart: unless-stopped
+    depends_on:
+      - postgres-org-001
+      - redis-org-001
+      - orchestrator-org-001
+    networks:
+      - moolai-internal
+      - moolai-backend
+    environment:
+      MONITORING_MODE: sidecar
+      ORCHESTRATOR_ID: org_001_orchestrator
+      ORGANIZATION_ID: org_001
+      DATABASE_URL: postgresql+asyncpg://monitoring_user:@postgres-org-001:5432/monitoring_org_001
+      REDIS_URL: redis://:@redis-org-001:6379/0
+    secrets:
+      - db-password
+      - redis-password
+    ports:
+      - "8001:8001"
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /app/logs
+    user: "1001:1001"  # moolai user
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Controller Service (Central Management)
+  controller:
+    image: moolai/controller:latest
+    restart: unless-stopped
+    networks:
+      - moolai-internal
+    environment:
+      CONTROLLER_MODE: central
+      LOG_LEVEL: INFO
+    ports:
+      - "8002:8002"
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /app/logs
+    user: "1001:1001"  # moolai user
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+# Additional security configurations
+x-security-defaults: &security-defaults
+  security_opt:
+    - no-new-privileges:true
+  read_only: true
+  cap_drop:
+    - ALL
+  tmpfs:
+    - /tmp

@@ -1,0 +1,59 @@
+{
+	"name": "@moolai/realtime-client",
+	"version": "1.0.0",
+	"description": "JavaScript client library for MoolAI real-time communication (SSE and WebSocket)",
+	"main": "js/moolai-realtime.js",
+	"module": "js/moolai-realtime-react.js",
+	"types": "types/index.d.ts",
+	"files": [
+		"js/",
+		"types/",
+		"README.md"
+	],
+	"scripts": {
+		"build": "echo 'No build step required for vanilla JS'",
+		"test": "echo 'No tests configured yet'",
+		"serve-example": "python3 -m http.server 8080"
+	},
+	"keywords": [
+		"moolai",
+		"realtime",
+		"sse",
+		"websocket",
+		"monitoring",
+		"metrics",
+		"javascript",
+		"react"
+	],
+	"author": "MoolAI Team",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/moolai/monitoring-system.git",
+		"directory": "client"
+	},
+	"peerDependencies": {
+		"react": ">=16.8.0"
+	},
+	"peerDependenciesMeta": {
+		"react": {
+			"optional": true
+		}
+	},
+	"devDependencies": {
+		"@types/react": "^18.0.0"
+	},
+	"browser": {
+		"js/moolai-realtime.js": "./js/moolai-realtime.js"
+	},
+	"exports": {
+		".": {
+			"import": "./js/moolai-realtime.js",
+			"require": "./js/moolai-realtime.js"
+		},
+		"./react": {
+			"import": "./js/moolai-realtime-react.js",
+			"require": "./js/moolai-realtime-react.js"
+		}
+	}
+}

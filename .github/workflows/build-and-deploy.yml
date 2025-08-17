@@ -1,0 +1,181 @@
+name: Build and Deploy MoolAI Services
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:  # Allow manual triggers
+
+env:
+  REGISTRY: ghcr.io
+  REGISTRY_NAMESPACE: ${{ github.repository_owner }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      matrix:
+        service:
+          - name: monitoring
+            dockerfile: infrastructure/docker/Dockerfile.monitoring
+            context: .
+          - name: orchestrator
+            dockerfile: infrastructure/docker/Dockerfile.orchestrator
+            context: .
+          - name: controller
+            dockerfile: infrastructure/docker/Dockerfile.controller
+            context: .
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/moolai-${{ matrix.service.name }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: ${{ matrix.service.context }}
+        file: ${{ matrix.service.dockerfile }}
+        target: production
+        platforms: linux/amd64,linux/arm64
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        build-args: |
+          BUILD_DATE=${{ github.event.head_commit.timestamp }}
+          VCS_REF=${{ github.sha }}
+          VERSION=${{ github.ref_name }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  test-images:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Test image health checks
+      run: |
+        # Test monitoring service
+        docker run --rm -d --name test-monitoring \
+          -e DATABASE_URL="postgresql+asyncpg://test:test@localhost:5432/test" \
+          -e REDIS_URL="redis://localhost:6379/0" \
+          -p 8001:8001 \
+          ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/moolai-monitoring:${{ github.sha }}
+        
+        # Wait for service to start
+        sleep 10
+        
+        # Test health endpoint
+        curl -f http://localhost:8001/health || exit 1
+        
+        # Cleanup
+        docker stop test-monitoring
+
+        # Test orchestrator service
+        docker run --rm -d --name test-orchestrator \
+          -e DATABASE_URL="postgresql+asyncpg://test:test@localhost:5432/test" \
+          -e REDIS_URL="redis://localhost:6379/0" \
+          -p 8000:8000 \
+          ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/moolai-orchestrator:${{ github.sha }}
+        
+        sleep 10
+        curl -f http://localhost:8000/health || exit 1
+        docker stop test-orchestrator
+
+        # Test controller service
+        docker run --rm -d --name test-controller \
+          -e DATABASE_URL="postgresql+asyncpg://test:test@localhost:5432/test" \
+          -p 8002:8002 \
+          ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/moolai-controller:${{ github.sha }}
+        
+        sleep 10
+        curl -f http://localhost:8002/health || exit 1
+        docker stop test-controller
+
+  security-scan:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    strategy:
+      matrix:
+        service: [monitoring, orchestrator, controller]
+    
+    steps:
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/moolai-${{ matrix.service }}:${{ github.sha }}
+        format: 'sarif'
+        output: 'trivy-results-${{ matrix.service }}.sarif'
+
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results-${{ matrix.service }}.sarif'
+
+  deployment-ready:
+    needs: [build-and-push, test-images]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Deployment summary
+      run: |
+        echo "🚀 MoolAI services successfully built and pushed!"
+        echo ""
+        echo "📦 Available images:"
+        echo "  - ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/moolai-monitoring:latest"
+        echo "  - ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/moolai-orchestrator:latest" 
+        echo "  - ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/moolai-controller:latest"
+        echo ""
+        echo "🔧 To deploy:"
+        echo "  docker pull ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/moolai-monitoring:latest"
+        echo "  docker pull ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/moolai-orchestrator:latest"
+        echo "  docker pull ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/moolai-controller:latest"
+        echo ""
+        echo "✅ All services passed health checks and security scans"

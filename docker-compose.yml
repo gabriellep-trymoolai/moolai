@@ -1,0 +1,392 @@
+# MoolAI Complete System - Docker Compose Configuration
+# Production-ready sidecar mode deployment
+version: '3.8'
+
+networks:
+  moolai-internal:
+    driver: bridge
+    internal: false
+    attachable: false
+  moolai-backend:
+    driver: bridge
+    internal: true
+    attachable: false
+
+volumes:
+  postgres-org-001-data:
+    driver: local
+  postgres-org-002-data:
+    driver: local
+  postgres-orchestrator-001-data:
+    driver: local
+  postgres-orchestrator-002-data:
+    driver: local
+  postgres-controller-data:
+    driver: local
+  redis-org-001-data:
+    driver: local
+  redis-org-002-data:
+    driver: local
+  controller-data:
+    driver: local
+
+services:
+  # PostgreSQL Database for Organization 001
+  postgres-org-001:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    networks:
+      - moolai-backend
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: monitoring_org_001
+      POSTGRES_USER: monitoring_user
+      POSTGRES_PASSWORD: secure_password_001
+    volumes:
+      - postgres-org-001-data:/var/lib/postgresql/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+
+  # Redis Cache for Organization 001
+  redis-org-001:
+    image: redis:7-alpine
+    restart: unless-stopped
+    networks:
+      - moolai-backend
+    command: redis-server --appendonly yes --appendfsync everysec
+    volumes:
+      - redis-org-001-data:/data
+    security_opt:
+      - no-new-privileges:true
+    user: "999:999"
+    cap_drop:
+      - ALL
+
+  # PostgreSQL Database for Orchestrator 001
+  postgres-orchestrator-001:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    networks:
+      - moolai-backend
+    ports:
+      - "5434:5432"
+    environment:
+      POSTGRES_DB: orchestrator_org_001
+      POSTGRES_USER: orchestrator_user
+      POSTGRES_PASSWORD: secure_password_orch_001
+    volumes:
+      - postgres-orchestrator-001-data:/var/lib/postgresql/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+
+  # PostgreSQL Database for Orchestrator 002
+  postgres-orchestrator-002:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    networks:
+      - moolai-backend
+    ports:
+      - "5435:5432"
+    environment:
+      POSTGRES_DB: orchestrator_org_002
+      POSTGRES_USER: orchestrator_user
+      POSTGRES_PASSWORD: secure_password_orch_002
+    volumes:
+      - postgres-orchestrator-002-data:/var/lib/postgresql/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+
+  # PostgreSQL Database for Controller
+  postgres-controller:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    networks:
+      - moolai-backend
+    ports:
+      - "5436:5432"
+    environment:
+      POSTGRES_DB: moolai_controller
+      POSTGRES_USER: controller_user
+      POSTGRES_PASSWORD: secure_password_controller
+    volumes:
+      - postgres-controller-data:/var/lib/postgresql/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+
+  # PostgreSQL Database for Organization 002
+  postgres-org-002:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    networks:
+      - moolai-backend
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: monitoring_org_002
+      POSTGRES_USER: monitoring_user
+      POSTGRES_PASSWORD: secure_password_002
+    volumes:
+      - postgres-org-002-data:/var/lib/postgresql/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+
+  # Redis Cache for Organization 002
+  redis-org-002:
+    image: redis:7-alpine
+    restart: unless-stopped
+    networks:
+      - moolai-backend
+    command: redis-server --appendonly yes --appendfsync everysec
+    volumes:
+      - redis-org-002-data:/data
+    security_opt:
+      - no-new-privileges:true
+    user: "999:999"
+    cap_drop:
+      - ALL
+
+  # Orchestrator Service for Organization 001
+  orchestrator-org-001:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.orchestrator
+      args:
+        BUILD_DATE: ${BUILD_DATE:-}
+        VCS_REF: ${VCS_REF:-}
+        VERSION: ${VERSION:-1.0.0}
+    restart: unless-stopped
+    depends_on:
+      - postgres-orchestrator-001
+      - redis-org-001
+    networks:
+      - moolai-internal
+      - moolai-backend
+    environment:
+      ORGANIZATION_ID: org_001
+      DATABASE_URL: postgresql+asyncpg://orchestrator_user:secure_password_orch_001@postgres-orchestrator-001:5432/orchestrator_org_001
+      REDIS_URL: redis://redis-org-001:6379/0
+      LOG_LEVEL: INFO
+    ports:
+      - "8000:8000"
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+      - /app/logs
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Monitoring Service for Organization 001 (Sidecar)
+  monitoring-org-001:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.monitoring
+      args:
+        BUILD_DATE: ${BUILD_DATE:-}
+        VCS_REF: ${VCS_REF:-}
+        VERSION: ${VERSION:-1.0.0}
+    restart: unless-stopped
+    depends_on:
+      - postgres-org-001
+      - redis-org-001
+      - orchestrator-org-001
+    networks:
+      - moolai-internal
+      - moolai-backend
+    environment:
+      MONITORING_MODE: sidecar
+      ORCHESTRATOR_ID: org_001_orchestrator
+      ORGANIZATION_ID: org_001
+      DATABASE_URL: postgresql+asyncpg://monitoring_user:secure_password_001@postgres-org-001:5432/monitoring_org_001
+      REDIS_URL: redis://redis-org-001:6379/0
+      LOG_LEVEL: INFO
+    ports:
+      - "8001:8001"
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+      - /app/logs
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Orchestrator Service for Organization 002
+  orchestrator-org-002:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.orchestrator
+      args:
+        BUILD_DATE: ${BUILD_DATE:-}
+        VCS_REF: ${VCS_REF:-}
+        VERSION: ${VERSION:-1.0.0}
+    restart: unless-stopped
+    depends_on:
+      - postgres-orchestrator-002
+      - redis-org-002
+    networks:
+      - moolai-internal
+      - moolai-backend
+    environment:
+      ORGANIZATION_ID: org_002
+      DATABASE_URL: postgresql+asyncpg://orchestrator_user:secure_password_orch_002@postgres-orchestrator-002:5432/orchestrator_org_002
+      REDIS_URL: redis://redis-org-002:6379/0
+      LOG_LEVEL: INFO
+    ports:
+      - "8010:8000"
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+      - /app/logs
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Monitoring Service for Organization 002 (Sidecar)
+  monitoring-org-002:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.monitoring
+      args:
+        BUILD_DATE: ${BUILD_DATE:-}
+        VCS_REF: ${VCS_REF:-}
+        VERSION: ${VERSION:-1.0.0}
+    restart: unless-stopped
+    depends_on:
+      - postgres-org-002
+      - redis-org-002
+      - orchestrator-org-002
+    networks:
+      - moolai-internal
+      - moolai-backend
+    environment:
+      MONITORING_MODE: sidecar
+      ORCHESTRATOR_ID: org_002_orchestrator
+      ORGANIZATION_ID: org_002
+      DATABASE_URL: postgresql+asyncpg://monitoring_user:secure_password_002@postgres-org-002:5432/monitoring_org_002
+      REDIS_URL: redis://redis-org-002:6379/0
+      LOG_LEVEL: INFO
+    ports:
+      - "8011:8001"
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+      - /app/logs
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Controller Service (Central Management)
+  controller:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.controller
+      args:
+        BUILD_DATE: ${BUILD_DATE:-}
+        VCS_REF: ${VCS_REF:-}
+        VERSION: ${VERSION:-1.0.0}
+    restart: unless-stopped
+    depends_on:
+      - postgres-controller
+    networks:
+      - moolai-internal
+      - moolai-backend
+    environment:
+      CONTROLLER_MODE: central
+      DATABASE_URL: postgresql+asyncpg://controller_user:secure_password_controller@postgres-controller:5432/moolai_controller
+      # Can connect to all monitoring databases for analytics
+      MONITORING_DBS: |
+        org_001:postgresql+asyncpg://monitoring_user:secure_password_001@postgres-org-001:5432/monitoring_org_001
+        org_002:postgresql+asyncpg://monitoring_user:secure_password_002@postgres-org-002:5432/monitoring_org_002
+      LOG_LEVEL: INFO
+    ports:
+      - "8002:8002"
+    volumes:
+      - controller-data:/app/data
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+      - /app/logs
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
