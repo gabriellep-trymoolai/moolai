@@ -1,8 +1,4 @@
-from .prompt_response import PromptResponseAgent, PromptResponseService, PromptRequest, PromptResponse
+# Prompt-Response Agent has been moved to orchestrator service
+# This monitoring service now focuses on system metrics and performance monitoring
 
-__all__ = [
-    "PromptResponseAgent",
-    "PromptResponseService", 
-    "PromptRequest",
-    "PromptResponse"
-]
+__all__ = []

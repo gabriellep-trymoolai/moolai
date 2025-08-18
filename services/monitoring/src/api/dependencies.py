@@ -1,13 +1,13 @@
 """FastAPI dependencies."""
 
 import os
-from fastapi import Depends, HTTPException
+from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 import redis.asyncio as redis
 
 from ..models import get_db
 from ..middleware import LLMMonitoringMiddleware, SystemPerformanceMiddleware
-from ..agents import PromptResponseAgent
+# Note: PromptResponseAgent moved to orchestrator service
 
 
 # Global app state - will be set by main.py
@@ -56,15 +56,4 @@ async def get_system_monitoring_middleware(
     )
 
 
-async def get_agent(
-    monitoring: LLMMonitoringMiddleware = Depends(get_monitoring_middleware),
-    system_monitoring: SystemPerformanceMiddleware = Depends(get_system_monitoring_middleware)
-) -> PromptResponseAgent:
-    """Get prompt-response agent instance."""
-    if not app_state or not hasattr(app_state, 'agent') or app_state.agent is None:
-        raise HTTPException(status_code=503, detail="Agent not available")
-    
-    # Set monitoring middleware
-    app_state.agent.monitoring = monitoring
-    app_state.agent.system_middleware = system_monitoring
-    return app_state.agent
+# Note: get_agent function removed - PromptResponseAgent moved to orchestrator service

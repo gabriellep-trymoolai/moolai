@@ -3,9 +3,10 @@ Orchestrator API Endpoints - Foundation
 All endpoints return healthy responses for integration foundation
 """
 
-from fastapi import APIRouter, Query, Path, Depends, HTTPException
+from fastapi import APIRouter, Query, Path, Depends, HTTPException, Request
 from typing import Optional, List
 from datetime import datetime
+from sqlalchemy.ext.asyncio import AsyncSession
 
 # Import common models and utilities
 import sys
@@ -26,6 +27,12 @@ from common.api.utils import (
 
 # Import controller client
 from ...services.controller_client import get_controller_client
+
+# Import database
+from ...db.database import get_db
+
+# Import agent models
+from ...agents.prompt_response import PromptRequest as AgentPromptRequest
 
 router = APIRouter(prefix="/orchestrators/{organization_id}", tags=["Orchestrator"])
 
@@ -182,37 +189,96 @@ async def delete_user(
 @router.post("/prompts", response_model=APIResponse[PromptResponse])
 async def execute_prompt(
 	prompt_request: PromptRequest,
-	organization_id: str = Path(...)
+	organization_id: str = Path(...),
+	request: Request = None,
+	db: AsyncSession = Depends(get_db)
 ):
-	"""Execute LLM prompt"""
-	prompt_id = generate_request_id()
-	response_data = create_placeholder_prompt_response(prompt_id)
-	response_data.update({
-		"model": prompt_request.model,
-		"temperature": prompt_request.temperature
-	})
-	
-	return create_success_response(
-		data=response_data,
-		service=f"orchestrator-{organization_id}",
-		message="Prompt executed successfully",
-		organization_id=organization_id
-	)
+	"""Execute LLM prompt using the integrated prompt-response agent"""
+	try:
+		# Get the prompt agent from app state
+		if not hasattr(request.app.state, 'prompt_agent') or request.app.state.prompt_agent is None:
+			raise HTTPException(status_code=503, detail="Prompt-Response Agent not available")
+		
+		agent = request.app.state.prompt_agent
+		
+		# Convert API request to agent request
+		agent_request = AgentPromptRequest(
+			prompt=prompt_request.prompt,
+			user_id="api-user",  # TODO: Extract from authentication
+			organization_id=organization_id,
+			model=prompt_request.model,
+			temperature=prompt_request.temperature,
+			max_tokens=prompt_request.max_tokens,
+			stream=prompt_request.stream
+		)
+		
+		# Process the prompt
+		agent_response = await agent.process_prompt(agent_request, db)
+		
+		# Convert agent response to API response
+		response_data = {
+			"prompt_id": agent_response.prompt_id,
+			"response": agent_response.response,
+			"model": agent_response.model,
+			"tokens_used": agent_response.total_tokens,
+			"cost": agent_response.cost,
+			"latency_ms": agent_response.latency_ms,
+			"created_at": agent_response.timestamp
+		}
+		
+		return create_success_response(
+			data=response_data,
+			service=f"orchestrator-{organization_id}",
+			message="Prompt executed successfully using integrated agent",
+			organization_id=organization_id
+		)
+		
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=f"Prompt execution failed: {str(e)}")
 
 @router.get("/prompts/{prompt_id}", response_model=APIResponse[PromptResponse])
 async def get_prompt_result(
 	organization_id: str = Path(...),
-	prompt_id: str = Path(...)
+	prompt_id: str = Path(...),
+	db: AsyncSession = Depends(get_db)
 ):
 	"""Get prompt execution result"""
-	response_data = create_placeholder_prompt_response(prompt_id)
-	
-	return create_success_response(
-		data=response_data,
-		service=f"orchestrator-{organization_id}",
-		message="Prompt result retrieved successfully",
-		organization_id=organization_id
-	)
+	try:
+		from sqlalchemy import select
+		from ...models.prompt_execution import PromptExecution
+		
+		query = select(PromptExecution).where(
+			PromptExecution.prompt_id == prompt_id,
+			PromptExecution.organization_id == organization_id
+		)
+		
+		result = await db.execute(query)
+		prompt_execution = result.scalar_one_or_none()
+		
+		if not prompt_execution:
+			raise HTTPException(status_code=404, detail="Prompt execution not found")
+		
+		response_data = {
+			"prompt_id": prompt_execution.prompt_id,
+			"response": prompt_execution.response_text,
+			"model": prompt_execution.model,
+			"tokens_used": prompt_execution.total_tokens,
+			"cost": prompt_execution.cost,
+			"latency_ms": prompt_execution.latency_ms,
+			"created_at": prompt_execution.timestamp
+		}
+		
+		return create_success_response(
+			data=response_data,
+			service=f"orchestrator-{organization_id}",
+			message="Prompt result retrieved successfully",
+			organization_id=organization_id
+		)
+		
+	except HTTPException:
+		raise
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=f"Failed to retrieve prompt result: {str(e)}")
 
 @router.get("/prompts/{prompt_id}/stream")
 async def stream_prompt_response(

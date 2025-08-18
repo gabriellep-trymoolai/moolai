@@ -11,10 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import redis.asyncio as redis
 
 from ..config.database import db_manager, init_db
-from ..agents import PromptResponseAgent
+# Note: Prompt-Response Agent moved to orchestrator service
 from ..services.system_metrics import system_metrics_service
 from ..middleware.system_monitoring import SystemPerformanceMiddleware, global_system_scheduler
-from .routers import metrics, agent, dashboard, system_metrics, streaming, websocket
+from .routers import metrics, dashboard, system_metrics, streaming, websocket
+# Note: agent router removed - functionality moved to orchestrator service
 from .dependencies import set_app_state
 
 # Load environment variables
@@ -66,15 +67,8 @@ async def lifespan(app: FastAPI):
         print(f"Redis connection failed: {e}")
         app.state.redis = None
     
-    # Initialize prompt-response agent
-    try:
-        app.state.agent = PromptResponseAgent(
-            openai_api_key=os.getenv("OPENAI_API_KEY")
-        )
-        print("Prompt-Response Agent initialized")
-    except Exception as e:
-        print(f"Agent initialization failed: {e}")
-        app.state.agent = None
+    # Note: Prompt-Response Agent has been moved to orchestrator service
+    # Monitoring service now focuses on metrics collection and system monitoring
     
     # Initialize system performance monitoring
     try:
@@ -171,7 +165,7 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(agent.router, prefix="/api/v1", tags=["agent"])
+# Note: agent router removed - functionality moved to orchestrator service
 app.include_router(metrics.router, prefix="/api/v1", tags=["metrics"])
 app.include_router(dashboard.router, prefix="/api/v1", tags=["dashboard"])
 app.include_router(system_metrics.router, tags=["system-metrics"])
@@ -229,16 +223,8 @@ async def health_check():
         health_status["services"]["redis"] = "disconnected"
         health_status["status"] = "degraded"
     
-    # Check OpenAI agent
-    try:
-        if hasattr(app.state, 'agent'):
-            agent_health = await app.state.agent.health_check()
-            health_status["services"]["openai_agent"] = agent_health["status"]
-        else:
-            health_status["services"]["openai_agent"] = "not_configured"
-    except Exception:
-        health_status["services"]["openai_agent"] = "error"
-        health_status["status"] = "degraded"
+    # Note: OpenAI agent moved to orchestrator service
+    health_status["services"]["prompt_agent"] = "moved_to_orchestrator"
     
     # Check system performance monitoring
     try:

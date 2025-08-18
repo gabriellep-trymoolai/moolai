@@ -20,8 +20,8 @@ python-dotenv==1.0.0
 pydantic==2.5.0
 pydantic-settings==2.1.0
 
-# OpenAI and AI services
-openai==1.3.7
+# Note: OpenAI moved to orchestrator service
+# openai==1.3.7
 
 # System metrics and monitoring
 psutil==5.9.6

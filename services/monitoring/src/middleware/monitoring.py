@@ -10,7 +10,7 @@ from decimal import Decimal
 
 import redis.asyncio as redis
 from sqlalchemy.ext.asyncio import AsyncSession
-from openai import AsyncOpenAI
+# Note: OpenAI integration moved to orchestrator service
 
 from ..models.user_metrics import UserLLMRealtime, UserSession
 from ..utils.cost_calculator import calculate_cost

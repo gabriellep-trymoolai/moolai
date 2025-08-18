@@ -102,6 +102,7 @@ class DatabaseManager:
 		from ..models.org import Organization  
 		from ..models.llm_config import LLMConfig
 		from ..models.prompt import Prompt
+		from ..models.prompt_execution import PromptExecution
 		from ..models.firewall_log import FirewallLog
 		
 		print(f"Creating orchestrator database tables...")

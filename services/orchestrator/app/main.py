@@ -14,6 +14,9 @@ from .services.controller_client import ensure_controller_registration, cleanup_
 # Import API routers
 from .api.v1.orchestrator import router as orchestrator_router
 
+# Import agents
+from .agents import PromptResponseAgent
+
 # Load environment variables
 from dotenv import load_dotenv
 load_dotenv()
@@ -47,6 +50,18 @@ async def lifespan(app: FastAPI):
         print(f"Controller registration failed: {e}")
         print("Orchestrator cannot start without controller registration")
         raise  # Fail startup if controller registration fails
+    
+    # Initialize prompt-response agent
+    try:
+        organization_id = os.getenv("ORGANIZATION_ID", "default-org")
+        app.state.prompt_agent = PromptResponseAgent(
+            openai_api_key=os.getenv("OPENAI_API_KEY"),
+            organization_id=organization_id
+        )
+        print(f"Prompt-Response Agent initialized for organization: {organization_id}")
+    except Exception as e:
+        print(f"Prompt-Response Agent initialization failed: {e}")
+        app.state.prompt_agent = None
     
     yield
     

@@ -212,6 +212,7 @@ services:
       INTERNAL_URL: http://orchestrator-org-001:8000
       IMAGE_NAME: moolai/orchestrator:latest
       LOG_LEVEL: INFO
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
     ports:
       - "8000:8000"
     security_opt:
@@ -298,6 +299,7 @@ services:
       INTERNAL_URL: http://orchestrator-org-002:8000
       IMAGE_NAME: moolai/orchestrator:latest
       LOG_LEVEL: INFO
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
     ports:
       - "8010:8000"
     security_opt:
