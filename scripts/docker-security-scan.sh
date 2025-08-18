@@ -50,7 +50,7 @@ check_security() {
 echo -e "${BLUE}=== Docker Security Best Practices Validation ===${NC}\n"
 
 # List of Dockerfiles to check
-dockerfiles=("infrastructure/docker/Dockerfile.monitoring" "infrastructure/docker/Dockerfile.orchestrator" "infrastructure/docker/Dockerfile.controller")
+dockerfiles=("infrastructure/docker/Dockerfile.orchestrator" "infrastructure/docker/Dockerfile.controller")
 
 for dockerfile in "${dockerfiles[@]}"; do
     echo -e "${YELLOW}Checking $dockerfile:${NC}"

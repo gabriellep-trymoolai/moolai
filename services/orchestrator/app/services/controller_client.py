@@ -63,6 +63,13 @@ class ControllerClient:
 		Register this orchestrator with the controller.
 		Retries automatically if registration fails.
 		"""
+		# Generate monitoring database URL
+		monitoring_database_url = self.database_url
+		if "orchestrator_org_001" in self.database_url:
+			monitoring_database_url = self.database_url.replace("orchestrator_org_001", "monitoring_org_001")
+		elif "orchestrator_org_002" in self.database_url:
+			monitoring_database_url = self.database_url.replace("orchestrator_org_002", "monitoring_org_002")
+		
 		registration_data = {
 			"orchestrator_id": self.orchestrator_id,
 			"organization_id": self.organization_id,
@@ -72,10 +79,22 @@ class ControllerClient:
 			"redis_url": self.redis_url,
 			"container_id": self.container_id,
 			"image_name": self.image_name,
+			"monitoring": {
+				"enabled": True,
+				"embedded": True,
+				"database_url": monitoring_database_url,
+				"endpoints": {
+					"metrics": f"{self.internal_url}/api/v1/system/metrics",
+					"health": f"{self.internal_url}/api/v1/system/status",
+					"stream": f"{self.internal_url}/api/v1/stream",
+					"websocket": f"{self.internal_url.replace('http', 'ws')}/ws"
+				}
+			},
 			"environment_variables": {
 				"ORCHESTRATOR_ID": self.orchestrator_id,
 				"ORGANIZATION_ID": self.organization_id,
-				"INTERNAL_URL": self.internal_url
+				"INTERNAL_URL": self.internal_url,
+				"MONITORING_DATABASE_URL": monitoring_database_url
 			}
 		}
 		

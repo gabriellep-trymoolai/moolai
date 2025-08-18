@@ -145,13 +145,8 @@ test_build "controller" "Dockerfile.controller"
 # Test container startups
 echo -e "\n${BLUE}=== Testing Container Startups ===${NC}"
 
-# Test monitoring service container
-test_container "monitoring" 8001 \
-    "MONITORING_MODE=sidecar" \
-    "ORCHESTRATOR_ID=test_orchestrator" \
-    "ORGANIZATION_ID=test_org" \
-    "DATABASE_URL=postgresql://test:test@localhost:5432/test_db" \
-    "REDIS_URL=redis://localhost:6379/0"
+# Note: Monitoring is now embedded in orchestrator containers (ports 8000, 8010)
+echo -e "${YELLOW}Monitoring is now embedded in orchestrator services${NC}"
 
 # Test orchestrator service container  
 test_container "orchestrator" 8000 \

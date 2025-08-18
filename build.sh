@@ -50,7 +50,6 @@ build_individual_services() {
     
     # Array of services and their Dockerfiles
     declare -a services=(
-        "monitoring:infrastructure/docker/Dockerfile.monitoring"
         "orchestrator:infrastructure/docker/Dockerfile.orchestrator"
         "controller:infrastructure/docker/Dockerfile.controller"
     )
@@ -102,11 +101,11 @@ run_tests() {
         fi
     fi
     
-    # Test monitoring service with real-time features
-    if [[ -f "test_monitoring_service.py" ]]; then
-        echo -e "${YELLOW}Testing monitoring service with real-time features...${NC}"
+    # Test embedded monitoring with real-time features
+    if [[ -f "test_system_monitoring.py" ]]; then
+        echo -e "${YELLOW}Testing embedded monitoring system with real-time features...${NC}"
         if command -v python3 &> /dev/null; then
-            python3 test_monitoring_service.py || echo -e "${YELLOW}⚠️  Monitoring service tests failed${NC}"
+            python3 test_system_monitoring.py || echo -e "${YELLOW}⚠️  Embedded monitoring tests failed${NC}"
         else
             echo -e "${YELLOW}⚠️  Python3 not found, skipping monitoring tests${NC}"
         fi
@@ -122,16 +121,18 @@ run_tests() {
         fi
     fi
     
-    # Run monitoring service tests
-    if [[ -d "services/monitoring/tests" ]]; then
-        echo -e "${YELLOW}Running monitoring service unit tests...${NC}"
-        cd services/monitoring
+    # Run embedded monitoring tests (within orchestrator tests)
+    if [[ -d "services/orchestrator/tests" ]]; then
+        echo -e "${YELLOW}Running orchestrator tests (including embedded monitoring)...${NC}"
+        cd services/orchestrator
         if command -v python3 &> /dev/null; then
             python3 -m pytest tests/ -v --tb=short || echo -e "${YELLOW}⚠️  Some unit tests failed${NC}"
         else
             echo -e "${YELLOW}⚠️  Python3 not found, skipping unit tests${NC}"
         fi
         cd ../..
+    else
+        echo -e "${YELLOW}Note: Monitoring is now embedded in orchestrator service${NC}"
     fi
     
     # Run Docker build tests if available
@@ -191,15 +192,15 @@ show_results
 
 echo -e "\n${GREEN}=== Build Complete! ===${NC}"
 echo -e "Services available:"
-echo -e "  - Orchestrator (Org 001): http://localhost:8000"
-echo -e "  - Monitoring (Org 001):   http://localhost:8001"
-echo -e "    → SSE Metrics:           http://localhost:8001/api/v1/stream/metrics/organization"
-echo -e "    → WebSocket Admin:       ws://localhost:8001/ws/admin/control"
-echo -e "  - Orchestrator (Org 002): http://localhost:8010"
-echo -e "  - Monitoring (Org 002):   http://localhost:8011"
-echo -e "    → SSE Metrics:           http://localhost:8011/api/v1/stream/metrics/organization"
-echo -e "    → WebSocket Admin:       ws://localhost:8011/ws/admin/control"
-echo -e "  - Controller:              http://localhost:8002"
+echo -e "  - Orchestrator (Org 001):   http://localhost:8000"
+echo -e "    → Embedded Monitoring:     http://localhost:8000/api/v1/system/metrics"
+echo -e "    → SSE Metrics:             http://localhost:8000/api/v1/stream/metrics/organization"
+echo -e "    → WebSocket Admin:         ws://localhost:8000/ws/admin/control"
+echo -e "  - Orchestrator (Org 002):   http://localhost:8010"
+echo -e "    → Embedded Monitoring:     http://localhost:8010/api/v1/system/metrics"
+echo -e "    → SSE Metrics:             http://localhost:8010/api/v1/stream/metrics/organization"
+echo -e "    → WebSocket Admin:         ws://localhost:8010/ws/admin/control"
+echo -e "  - Controller:                http://localhost:8002"
 echo ""
 echo -e "${BLUE}Real-time Features Available:${NC}"
 echo -e "  - Server-Sent Events (SSE) for live metrics streaming"
@@ -212,4 +213,4 @@ echo -e "To view logs:        ${YELLOW}docker-compose logs -f${NC}"
 echo -e "To stop the system:  ${YELLOW}docker-compose down${NC}"
 echo ""
 echo -e "For development:     ${YELLOW}docker-compose up${NC} (without -d for live logs)"
-echo -e "Test real-time:      ${YELLOW}curl -N -H \"Accept: text/event-stream\" \"http://localhost:8001/api/v1/stream/system/health\"${NC}"
+echo -e "Test real-time:      ${YELLOW}curl -N -H \"Accept: text/event-stream\" \"http://localhost:8000/api/v1/stream/system/health\"${NC}"

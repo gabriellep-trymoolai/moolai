@@ -70,11 +70,7 @@ build_dev_service() {
     echo -e "${GREEN}✓ $service development version built${NC}"
 }
 
-# Build monitoring service with real-time features
-echo -e "\n${BLUE}=== Building Monitoring Service (with SSE/WebSocket) ===${NC}"
-build_service "monitoring" "infrastructure/docker/Dockerfile.monitoring"
-
-# Build orchestrator service  
+# Build orchestrator service (with embedded monitoring)  
 echo -e "\n${BLUE}=== Building Orchestrator Service ===${NC}"
 build_service "orchestrator" "infrastructure/docker/Dockerfile.orchestrator"
 
@@ -85,7 +81,6 @@ build_service "controller" "infrastructure/docker/Dockerfile.controller"
 # Optional: Build development versions
 if [[ "$1" == "--dev" ]]; then
     echo -e "\n${BLUE}=== Building Development Versions ===${NC}"
-    build_dev_service "monitoring" "infrastructure/docker/Dockerfile.monitoring"
     build_dev_service "orchestrator" "infrastructure/docker/Dockerfile.orchestrator"
     build_dev_service "controller" "infrastructure/docker/Dockerfile.controller"
 fi
@@ -97,7 +92,7 @@ docker images "$REGISTRY/*:$VERSION" --format "table {{.Repository}}\t{{.Tag}}\t
 # Optional: Analyze layers
 if [[ "$1" == "--analyze" ]]; then
     echo -e "\n${BLUE}=== Layer Analysis ===${NC}"
-    for service in monitoring orchestrator controller; do
+    for service in orchestrator controller; do
         echo -e "\n${YELLOW}$service layers:${NC}"
         docker history "$REGISTRY/$service:$VERSION" --no-trunc
     done
@@ -106,7 +101,7 @@ fi
 # Security scan (if available)
 if command -v docker-scout &> /dev/null; then
     echo -e "\n${BLUE}=== Security Scanning ===${NC}"
-    for service in monitoring orchestrator controller; do
+    for service in orchestrator controller; do
         echo -e "\n${YELLOW}Scanning $service...${NC}"
         docker-scout cves "$REGISTRY/$service:$VERSION" || echo "Scout scan failed for $service"
     done

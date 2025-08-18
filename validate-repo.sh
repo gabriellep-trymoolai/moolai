@@ -71,7 +71,6 @@ echo ""
 # Directory structure
 echo -e "${YELLOW}Directory Structure:${NC}"
 check_exists "services" "directory" "Services directory"
-check_exists "services/monitoring" "directory" "Monitoring service"
 check_exists "services/orchestrator" "directory" "Orchestrator service"
 check_exists "services/controller" "directory" "Controller service"
 check_exists "infrastructure" "directory" "Infrastructure directory"
@@ -82,20 +81,19 @@ check_exists "docs" "directory" "Documentation directory"
 
 echo ""
 
-# Monitoring service files
-echo -e "${YELLOW}Monitoring Service Files:${NC}"
-check_exists "services/monitoring/src" "directory" "Monitoring source code"
-check_exists "services/monitoring/src/api" "directory" "Monitoring API"
-check_exists "services/monitoring/src/config" "directory" "Monitoring configuration"
-check_exists "services/monitoring/src/models" "directory" "Monitoring models"
-check_exists "services/monitoring/tests" "directory" "Monitoring tests"
-check_exists "services/monitoring/requirements.txt" "file" "Monitoring dependencies"
+# Embedded monitoring files (in orchestrator)
+echo -e "${YELLOW}Embedded Monitoring Files (in Orchestrator):${NC}"
+check_exists "services/orchestrator/app/monitoring" "directory" "Embedded monitoring framework"
+check_exists "services/orchestrator/app/monitoring/api" "directory" "Monitoring API routes"
+check_exists "services/orchestrator/app/monitoring/config" "directory" "Monitoring configuration"
+check_exists "services/orchestrator/app/monitoring/models" "directory" "Monitoring models"
+check_exists "services/orchestrator/app/monitoring/middleware" "directory" "Monitoring middleware"
+check_exists "services/orchestrator/app/monitoring/services" "directory" "Monitoring services"
 
 echo ""
 
 # Infrastructure files
 echo -e "${YELLOW}Infrastructure Files:${NC}"
-check_exists "infrastructure/docker/Dockerfile.monitoring" "file" "Monitoring Dockerfile"
 check_exists "infrastructure/docker/Dockerfile.orchestrator" "file" "Orchestrator Dockerfile"
 check_exists "infrastructure/docker/Dockerfile.controller" "file" "Controller Dockerfile"
 
@@ -113,10 +111,10 @@ echo ""
 echo -e "${YELLOW}Content Validation:${NC}"
 check_content "README.md" "MoolAI Monitoring System" "README has correct title"
 check_content "docker-compose.yml" "version.*3.8" "Docker Compose version specified"
-check_content "docker-compose.yml" "monitoring-org-001" "Organization 001 monitoring service"
-check_content "docker-compose.yml" "monitoring-org-002" "Organization 002 monitoring service"
-check_content "infrastructure/docker/Dockerfile.monitoring" "MONITORING_MODE=sidecar" "Monitoring Dockerfile has sidecar mode"
-check_content "services/monitoring/requirements.txt" "fastapi" "Monitoring has FastAPI dependency"
+check_content "docker-compose.yml" "orchestrator-org-001" "Organization 001 orchestrator service"
+check_content "docker-compose.yml" "orchestrator-org-002" "Organization 002 orchestrator service"
+check_content "docker-compose.yml" "MONITORING_DATABASE_URL" "Embedded monitoring database configuration"
+check_content "services/orchestrator/requirements.txt" "fastapi" "Orchestrator has FastAPI dependency"
 
 echo ""
 
@@ -143,24 +141,29 @@ echo ""
 # Service structure validation
 echo -e "${YELLOW}Service Structure Validation:${NC}"
 
-# Check monitoring service structure
-if [[ -d "services/monitoring/src" ]]; then
-    required_monitoring_files=(
-        "services/monitoring/src/api/main.py"
-        "services/monitoring/src/config/settings.py"
-        "services/monitoring/src/config/database.py"
-        "services/monitoring/src/models/__init__.py"
+# Check embedded monitoring structure in orchestrator
+if [[ -d "services/orchestrator/app/monitoring" ]]; then
+    required_embedded_monitoring_files=(
+        "services/orchestrator/app/monitoring/api/routers/system_metrics.py"
+        "services/orchestrator/app/monitoring/config/settings.py"
+        "services/orchestrator/app/monitoring/config/database_adapter.py"
+        "services/orchestrator/app/monitoring/models/__init__.py"
+        "services/orchestrator/app/monitoring/middleware/system_monitoring.py"
+        "services/orchestrator/app/monitoring/services/system_metrics.py"
     )
     
-    for file in "${required_monitoring_files[@]}"; do
+    for file in "${required_embedded_monitoring_files[@]}"; do
         if [[ -f "$file" ]]; then
-            echo -e "${GREEN}✓ Monitoring file: $(basename $file)${NC}"
+            echo -e "${GREEN}✓ Embedded monitoring file: $(basename $file)${NC}"
             ((PASS_COUNT++))
         else
-            echo -e "${RED}✗ Missing monitoring file: $file${NC}"
+            echo -e "${RED}✗ Missing embedded monitoring file: $file${NC}"
             ((FAIL_COUNT++))
         fi
     done
+else
+    echo -e "${RED}✗ Embedded monitoring directory not found in orchestrator${NC}"
+    ((FAIL_COUNT++))
 fi
 
 echo ""

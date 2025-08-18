@@ -112,11 +112,9 @@ deploy_development() {
     echo -e "\n${GREEN}✅ Development stack deployed!${NC}"
     echo
     echo -e "${GREEN}=== Service URLs ===${NC}"
-    echo -e "Controller: ${CYAN}http://localhost:8002${NC}"
-    echo -e "Orchestrator (org-001): ${CYAN}http://localhost:8000${NC}"
-    echo -e "Monitoring (org-001): ${CYAN}http://localhost:8001${NC}"
-    echo -e "Orchestrator (org-002): ${CYAN}http://localhost:8010${NC}"
-    echo -e "Monitoring (org-002): ${CYAN}http://localhost:8011${NC}"
+    echo -e "Controller:             ${CYAN}http://localhost:8002${NC}"
+    echo -e "Orchestrator (org-001): ${CYAN}http://localhost:8000${NC} (with embedded monitoring)"
+    echo -e "Orchestrator (org-002): ${CYAN}http://localhost:8010${NC} (with embedded monitoring)"
     echo
     echo -e "${YELLOW}View logs: docker-compose logs -f${NC}"
 }

@@ -1,10 +1,10 @@
-from ..config.database import Base, get_db, init_db
+from ..config.database_adapter import Base, get_db, init_db
 from .user_metrics import UserLLMStatistics, UserLLMRealtime, UserSession
 from .system_metrics import (
     UserSystemPerformance,
     OrchestratorVersionHistory,
     SystemPerformanceAggregated,
-    SystemAlerts
+    SystemAlert
 )
 
 __all__ = [
@@ -17,5 +17,5 @@ __all__ = [
     "UserSystemPerformance",
     "OrchestratorVersionHistory",
     "SystemPerformanceAggregated",
-    "SystemAlerts",
+    "SystemAlert",
 ]

@@ -14,8 +14,6 @@ volumes:
     driver: local
   orchestrator-logs:
     driver: local
-  monitoring-logs:
-    driver: local
   client-backups:
     driver: local
 
@@ -110,6 +108,7 @@ services:
       
       # Database Configuration
       DATABASE_URL: postgresql+asyncpg://${DB_USER:-moolai_user}:${DB_PASSWORD}@postgres-client:5432/${DB_NAME_ORCHESTRATOR:-orchestrator_org}
+      MONITORING_DATABASE_URL: postgresql+asyncpg://${DB_USER:-moolai_user}:${DB_PASSWORD}@postgres-client:5432/${DB_NAME_MONITORING:-monitoring_org}
       
       # Redis Configuration
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis-client:6379/0
@@ -168,80 +167,3 @@ services:
       - SETGID
       - SETUID
 
-  # MoolAI Monitoring Sidecar Service
-  monitoring:
-    build:
-      context: ../..
-      dockerfile: infrastructure/docker/Dockerfile.monitoring
-      args:
-        BUILD_DATE: ${BUILD_DATE:-$(date -u +'%Y-%m-%dT%H:%M:%SZ')}
-        VCS_REF: ${VCS_REF:-$(git rev-parse --short HEAD)}
-        VERSION: ${VERSION:-1.0.0}
-    image: moolai/monitoring:${IMAGE_TAG:-latest}
-    container_name: moolai-monitoring-${ORGANIZATION_ID}
-    restart: unless-stopped
-    networks:
-      - client-network
-    ports:
-      - "${MONITORING_PORT:-8001}:8001"
-    environment:
-      # Sidecar Mode Configuration
-      MONITORING_MODE: sidecar
-      ORGANIZATION_ID: ${ORGANIZATION_ID}
-      ORCHESTRATOR_ID: ${ORCHESTRATOR_ID}
-      
-      # Database Configuration
-      DATABASE_URL: postgresql+asyncpg://${DB_USER:-moolai_user}:${DB_PASSWORD}@postgres-client:5432/${DB_NAME_MONITORING:-monitoring_org}
-      
-      # Redis Configuration
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis-client:6379/1
-      
-      # Orchestrator Connection
-      ORCHESTRATOR_URL: http://orchestrator:${ORCHESTRATOR_PORT:-8000}
-      
-      # Controller Connection
-      CONTROLLER_URL: ${CONTROLLER_URL}
-      CONTROLLER_API_KEY: ${CONTROLLER_API_KEY}
-      
-      # Service Configuration
-      API_PORT: ${MONITORING_PORT:-8001}
-      LOG_LEVEL: ${MONITORING_LOG_LEVEL:-INFO}
-      
-      # Metrics Collection
-      METRICS_COLLECTION_INTERVAL: ${METRICS_COLLECTION_INTERVAL:-30}
-      AUTO_COLLECT: ${AUTO_COLLECT:-true}
-      
-      # Python Settings
-      PYTHONPATH: /app
-      PYTHONDONTWRITEBYTECODE: 1
-      PYTHONUNBUFFERED: 1
-    volumes:
-      - monitoring-logs:/app/logs
-      - ./config/monitoring:/app/config:ro
-    depends_on:
-      postgres-client:
-        condition: service_healthy
-      redis-client:
-        condition: service_healthy
-      orchestrator:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:${MONITORING_PORT:-8001}/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    deploy:
-      resources:
-        limits:
-          cpus: '${MONITORING_CPU_LIMIT:-1.0}'
-          memory: ${MONITORING_MEMORY_LIMIT:-1024M}
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    cap_add:
-      - CHOWN
-      - DAC_OVERRIDE
-      - SETGID
-      - SETUID

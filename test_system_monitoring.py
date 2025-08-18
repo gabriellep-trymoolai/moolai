@@ -7,8 +7,8 @@ import requests
 import time
 from datetime import datetime
 
-# Test configuration
-MONITORING_BASE_URL = "http://localhost:8001"
+# Test configuration (monitoring embedded in orchestrator)
+MONITORING_BASE_URL = "http://localhost:8000"
 TEST_ORG_ID = "550e8400-e29b-41d4-a716-446655440000"  # Example UUID
 
 def test_api_endpoint(url, method="GET", description=""):
@@ -175,7 +175,7 @@ def main():
         print("   - Verify database connectivity")
     else:
         print("❌ Multiple tests failed - check service configuration")
-        print("   - Ensure monitoring service is running on port 8001")
+        print("   - Ensure orchestrator service with embedded monitoring is running on port 8000")
         print("   - Check database connectivity")
         print("   - Review service startup logs")
     

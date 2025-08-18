@@ -207,6 +207,7 @@ services:
       ORCHESTRATOR_ID: org_001_orchestrator
       ORCHESTRATOR_NAME: "Orchestrator Organization 001"
       DATABASE_URL: postgresql+asyncpg://orchestrator_user:secure_password_orch_001@postgres-orchestrator-001:5432/orchestrator_org_001
+      MONITORING_DATABASE_URL: postgresql+asyncpg://monitoring_user:secure_password_001@postgres-org-001:5432/monitoring_org_001
       REDIS_URL: redis://redis-org-001:6379/0
       CONTROLLER_URL: http://controller:8002
       INTERNAL_URL: http://orchestrator-org-001:8000
@@ -231,47 +232,6 @@ services:
       retries: 3
       start_period: 60s
 
-  # Monitoring Service for Organization 001 (Sidecar)
-  monitoring-org-001:
-    build:
-      context: .
-      dockerfile: infrastructure/docker/Dockerfile.monitoring
-      args:
-        BUILD_DATE: ${BUILD_DATE:-}
-        VCS_REF: ${VCS_REF:-}
-        VERSION: ${VERSION:-1.0.0}
-    restart: unless-stopped
-    depends_on:
-      - postgres-org-001
-      - redis-org-001
-      - orchestrator-org-001
-    networks:
-      - moolai-internal
-      - moolai-backend
-    environment:
-      MONITORING_MODE: sidecar
-      ORCHESTRATOR_ID: org_001_orchestrator
-      ORGANIZATION_ID: org_001
-      DATABASE_URL: postgresql+asyncpg://monitoring_user:secure_password_001@postgres-org-001:5432/monitoring_org_001
-      REDIS_URL: redis://redis-org-001:6379/0
-      LOG_LEVEL: INFO
-    ports:
-      - "8001:8001"
-    security_opt:
-      - no-new-privileges:true
-    tmpfs:
-      - /tmp
-      - /app/logs
-    cap_drop:
-      - ALL
-    cap_add:
-      - NET_BIND_SERVICE
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
 
   # Orchestrator Service for Organization 002
   orchestrator-org-002:
@@ -294,6 +254,7 @@ services:
       ORCHESTRATOR_ID: org_002_orchestrator
       ORCHESTRATOR_NAME: "Orchestrator Organization 002"
       DATABASE_URL: postgresql+asyncpg://orchestrator_user:secure_password_orch_002@postgres-orchestrator-002:5432/orchestrator_org_002
+      MONITORING_DATABASE_URL: postgresql+asyncpg://monitoring_user:secure_password_002@postgres-org-002:5432/monitoring_org_002
       REDIS_URL: redis://redis-org-002:6379/0
       CONTROLLER_URL: http://controller:8002
       INTERNAL_URL: http://orchestrator-org-002:8000
@@ -318,47 +279,6 @@ services:
       retries: 3
       start_period: 60s
 
-  # Monitoring Service for Organization 002 (Sidecar)
-  monitoring-org-002:
-    build:
-      context: .
-      dockerfile: infrastructure/docker/Dockerfile.monitoring
-      args:
-        BUILD_DATE: ${BUILD_DATE:-}
-        VCS_REF: ${VCS_REF:-}
-        VERSION: ${VERSION:-1.0.0}
-    restart: unless-stopped
-    depends_on:
-      - postgres-org-002
-      - redis-org-002
-      - orchestrator-org-002
-    networks:
-      - moolai-internal
-      - moolai-backend
-    environment:
-      MONITORING_MODE: sidecar
-      ORCHESTRATOR_ID: org_002_orchestrator
-      ORGANIZATION_ID: org_002
-      DATABASE_URL: postgresql+asyncpg://monitoring_user:secure_password_002@postgres-org-002:5432/monitoring_org_002
-      REDIS_URL: redis://redis-org-002:6379/0
-      LOG_LEVEL: INFO
-    ports:
-      - "8011:8001"
-    security_opt:
-      - no-new-privileges:true
-    tmpfs:
-      - /tmp
-      - /app/logs
-    cap_drop:
-      - ALL
-    cap_add:
-      - NET_BIND_SERVICE
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
 
   # Controller Service (Central Management)
   controller:

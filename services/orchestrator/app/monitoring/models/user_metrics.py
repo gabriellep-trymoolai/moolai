@@ -6,10 +6,10 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from datetime import datetime
-from ..config.database import Base
+from ...db.database import MonitoringBase
 
 
-class UserLLMStatistics(Base):
+class UserLLMStatistics(MonitoringBase):
     """Aggregated user LLM statistics table."""
     __tablename__ = "user_llm_statistics"
     
@@ -58,7 +58,7 @@ class UserLLMStatistics(Base):
     )
 
 
-class UserLLMRealtime(Base):
+class UserLLMRealtime(MonitoringBase):
     """Real-time buffer for user LLM requests."""
     __tablename__ = "user_llm_realtime"
     
@@ -114,7 +114,7 @@ class UserLLMRealtime(Base):
     )
 
 
-class UserSession(Base):
+class UserSession(MonitoringBase):
     """User session tracking."""
     __tablename__ = "user_sessions"
     

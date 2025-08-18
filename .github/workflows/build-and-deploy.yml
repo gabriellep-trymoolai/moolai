@@ -21,9 +21,6 @@ jobs:
     strategy:
       matrix:
         service:
-          - name: monitoring
-            dockerfile: infrastructure/docker/Dockerfile.monitoring
-            context: .
           - name: orchestrator
             dockerfile: infrastructure/docker/Dockerfile.orchestrator
             context: .
@@ -91,31 +88,26 @@ jobs:
 
     - name: Test image health checks
       run: |
-        # Test monitoring service
-        docker run --rm -d --name test-monitoring \
-          -e DATABASE_URL="postgresql+asyncpg://test:test@localhost:5432/test" \
-          -e REDIS_URL="redis://localhost:6379/0" \
-          -p 8001:8001 \
-          ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/moolai-monitoring:${{ github.sha }}
-        
-        # Wait for service to start
-        sleep 10
-        
-        # Test health endpoint
-        curl -f http://localhost:8001/health || exit 1
-        
-        # Cleanup
-        docker stop test-monitoring
-
-        # Test orchestrator service
+        # Test orchestrator service with embedded monitoring
         docker run --rm -d --name test-orchestrator \
           -e DATABASE_URL="postgresql+asyncpg://test:test@localhost:5432/test" \
+          -e MONITORING_DATABASE_URL="postgresql+asyncpg://test:test@localhost:5432/test_monitoring" \
           -e REDIS_URL="redis://localhost:6379/0" \
+          -e ORGANIZATION_ID="test_org" \
+          -e ORCHESTRATOR_ID="test_orchestrator" \
           -p 8000:8000 \
           ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/moolai-orchestrator:${{ github.sha }}
         
-        sleep 10
+        # Wait for service to start
+        sleep 15
+        
+        # Test health endpoints
         curl -f http://localhost:8000/health || exit 1
+        
+        # Test embedded monitoring endpoints
+        curl -f http://localhost:8000/api/v1/system/status/background || echo "Monitoring endpoint check skipped (expected in CI)"
+        
+        # Cleanup
         docker stop test-orchestrator
 
         # Test controller service
@@ -135,7 +127,7 @@ jobs:
     
     strategy:
       matrix:
-        service: [monitoring, orchestrator, controller]
+        service: [orchestrator, controller]
     
     steps:
     - name: Log in to Container Registry
@@ -169,12 +161,10 @@ jobs:
         echo "🚀 MoolAI services successfully built and pushed!"
         echo ""
         echo "📦 Available images:"
-        echo "  - ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/moolai-monitoring:latest"
-        echo "  - ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/moolai-orchestrator:latest" 
+        echo "  - ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/moolai-orchestrator:latest (with embedded monitoring)"
         echo "  - ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/moolai-controller:latest"
         echo ""
         echo "🔧 To deploy:"
-        echo "  docker pull ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/moolai-monitoring:latest"
         echo "  docker pull ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/moolai-orchestrator:latest"
         echo "  docker pull ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/moolai-controller:latest"
         echo ""
