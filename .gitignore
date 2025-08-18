@@ -195,5 +195,5 @@ MONITORING_SYSTEM.md
 test_*.py
 
 # System documentation
-SYSTEM_*
-*_DOCUMENTATION*
+SYSTEM_*.md
+*_DOCUMENTATION*.md
