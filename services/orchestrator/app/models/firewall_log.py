@@ -1,10 +1,8 @@
 """Firewall log model for orchestrator service."""
 
 from sqlalchemy import Column, String, Boolean, DateTime, Text, Integer, JSON, Float
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy import ForeignKey
 from datetime import datetime
-import uuid
 from ..db.database import Base
 
 
@@ -13,11 +11,11 @@ class FirewallLog(Base):
 	__tablename__ = "firewall_logs"
 	
 	# Primary key
-	log_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+	log_id = Column(String(255), primary_key=True)  # Format: "fwlog_001_org_001"
 	
 	# References
-	organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.organization_id"), nullable=False, index=True)
-	user_id = Column(UUID(as_uuid=True), ForeignKey("users.user_id"), nullable=False, index=True)
+	organization_id = Column(String(255), ForeignKey("organizations.organization_id"), nullable=False, index=True)
+	user_id = Column(String(255), ForeignKey("users.user_id"), nullable=False, index=True)
 	
 	# Request identification
 	request_id = Column(String(100), index=True)  # Unique request identifier
@@ -56,7 +54,7 @@ class FirewallLog(Base):
 	
 	# Administrative
 	is_false_positive = Column(Boolean, default=False)  # Marked as false positive
-	reviewed_by = Column(UUID(as_uuid=True), ForeignKey("users.user_id"))  # Admin who reviewed
+	reviewed_by = Column(String(255), ForeignKey("users.user_id"))  # Admin who reviewed
 	notes = Column(Text)  # Administrative notes
 	
 	def __repr__(self):

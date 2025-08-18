@@ -9,6 +9,13 @@ from fastapi.middleware.cors import CORSMiddleware
 # Import database components
 from .db.database import db_manager, init_db
 
+# Import API routers
+from .api.v1.controller import router as controller_router
+from .api.v1.internal import router as internal_router
+
+# Import database pool manager
+from .services.database_pool import initialize_database_pool, cleanup_database_pool
+
 # Load environment variables
 from dotenv import load_dotenv
 load_dotenv()
@@ -32,10 +39,26 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"Controller database initialization failed: {e}")
     
+    # Initialize database pool for orchestrator connections
+    try:
+        await initialize_database_pool()
+        print("Database pool manager initialized successfully")
+    except Exception as e:
+        print(f"Database pool manager initialization failed: {e}")
+    
     yield
     
     # Shutdown
     print("Shutting down MoolAI Controller Service...")
+    
+    # Clean up database pool
+    try:
+        await cleanup_database_pool()
+        print("Database pool cleaned up")
+    except Exception as e:
+        print(f"Error cleaning up database pool: {e}")
+    
+    # Close controller database connections
     try:
         await db_manager.close()
         print("Controller database connections closed")
@@ -59,6 +82,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include API routers
+app.include_router(controller_router, prefix="/api/v1")
+app.include_router(internal_router, prefix="/api/v1")
 
 
 @app.get("/")

@@ -1,0 +1,88 @@
+# GitHub Actions CI/CD Docker Compose Configuration
+# Simplified setup for testing individual controller and orchestrator images
+version: '3.8'
+
+networks:
+  ci-network:
+    driver: bridge
+
+volumes:
+  postgres-ci-data:
+    driver: local
+
+services:
+  # PostgreSQL Database for CI Testing
+  postgres-ci:
+    image: postgres:15-alpine
+    networks:
+      - ci-network
+    environment:
+      POSTGRES_MULTIPLE_DATABASES: controller_test,orchestrator_test
+      POSTGRES_USER: ci_user
+      POSTGRES_PASSWORD: ci_password
+    volumes:
+      - postgres-ci-data:/var/lib/postgresql/data
+      - ./deployment/client/scripts/init-multiple-databases.sh:/docker-entrypoint-initdb.d/init-multiple-databases.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ci_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Controller Service for CI Testing
+  controller-ci:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.controller
+      args:
+        BUILD_DATE: ${BUILD_DATE:-}
+        VCS_REF: ${VCS_REF:-}
+        VERSION: ${VERSION:-ci-test}
+    networks:
+      - ci-network
+    environment:
+      CONTROLLER_MODE: central
+      DATABASE_URL: postgresql+asyncpg://ci_user:ci_password@postgres-ci:5432/controller_test
+      LOG_LEVEL: INFO
+    ports:
+      - "8002:8002"
+    depends_on:
+      postgres-ci:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Orchestrator Service for CI Testing
+  orchestrator-ci:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.orchestrator
+      args:
+        BUILD_DATE: ${BUILD_DATE:-}
+        VCS_REF: ${VCS_REF:-}
+        VERSION: ${VERSION:-ci-test}
+    networks:
+      - ci-network
+    environment:
+      ORGANIZATION_ID: ci_test_org
+      ORCHESTRATOR_ID: ci_test_orchestrator
+      DATABASE_URL: postgresql+asyncpg://ci_user:ci_password@postgres-ci:5432/orchestrator_test
+      CONTROLLER_URL: http://controller-ci:8002
+      LOG_LEVEL: INFO
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres-ci:
+        condition: service_healthy
+      controller-ci:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s

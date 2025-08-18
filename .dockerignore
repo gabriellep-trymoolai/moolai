@@ -120,3 +120,15 @@ SIDECAR_MODE_IMPLEMENTATION.md
 # Build artifacts
 *.tar.gz
 *.zip
+
+test_*.py
+  manual_test_*.py
+  debug_*.py
+  dev_*.py
+  *_debug.py
+  *_dev.py
+  scratch_*.py
+  temp_*.py
+
+  !tests/
+  !services/*/tests/

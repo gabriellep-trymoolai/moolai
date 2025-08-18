@@ -16,9 +16,9 @@ class ActivityLog(Base):
 	log_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 	
 	# References
-	organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.organization_id"), index=True)
-	user_id = Column(UUID(as_uuid=True), ForeignKey("users.user_id"), index=True)
-	orchestrator_id = Column(UUID(as_uuid=True), ForeignKey("orchestrators.orchestrator_id"), index=True)
+	organization_id = Column(String(255), ForeignKey("organizations.organization_id"), index=True)
+	user_id = Column(String(255), ForeignKey("users.user_id"), index=True)
+	orchestrator_id = Column(String(255), ForeignKey("orchestrators.orchestrator_id"), index=True)
 	
 	# Activity identification
 	activity_type = Column(String(100), nullable=False, index=True)  # "login", "create_org", "deploy_orchestrator", etc.
@@ -71,7 +71,7 @@ class ActivityLog(Base):
 	
 	# Review and investigation
 	reviewed = Column(Boolean, default=False)
-	reviewed_by = Column(UUID(as_uuid=True), ForeignKey("users.user_id"))
+	reviewed_by = Column(String(255), ForeignKey("users.user_id"))
 	reviewed_at = Column(DateTime)
 	investigation_notes = Column(Text)
 	

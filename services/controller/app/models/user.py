@@ -12,7 +12,7 @@ class User(Base):
 	__tablename__ = "users"
 	
 	# Primary key
-	user_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+	user_id = Column(String(255), primary_key=True)  # Format: "user_001_org_001"
 	
 	# Basic user information
 	username = Column(String(100), unique=True, nullable=False, index=True)
@@ -53,7 +53,7 @@ class User(Base):
 	
 	# Account metadata
 	account_tier = Column(String(50), default="free")  # free, pro, enterprise
-	created_by = Column(UUID(as_uuid=True))  # Admin who created the account
+	created_by = Column(String(255))  # Admin who created the account
 	
 	# Timestamps
 	created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

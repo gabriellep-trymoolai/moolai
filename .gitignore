@@ -180,6 +180,7 @@ jspm_packages/
 *.md
 README*
 CHANGELOG*
+*.txt
 
 # Agent OS files (excluded from repository)
 .agent-os/
@@ -190,6 +191,8 @@ MONITORING_SYSTEM.md
 # Claude-related documentation
 *claude*
 *CLAUDE*
+*.txt
+test_*.py
 
 # System documentation
 SYSTEM_*

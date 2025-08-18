@@ -2,6 +2,7 @@
 
 import os
 from typing import Optional
+from contextlib import asynccontextmanager
 from sqlalchemy import create_engine, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, AsyncEngine
 from sqlalchemy.ext.declarative import declarative_base
@@ -76,6 +77,7 @@ class DatabaseManager:
 			)
 		return self._async_session_factory
 	
+	@asynccontextmanager
 	async def get_session(self) -> AsyncSession:
 		"""Get a database session."""
 		session_factory = self.async_session_factory
@@ -140,7 +142,7 @@ Base = declarative_base()
 # Compatibility functions
 async def get_db():
 	"""Dependency to get database session."""
-	async for session in db_manager.get_session():
+	async with db_manager.get_session() as session:
 		yield session
 
 async def init_db():

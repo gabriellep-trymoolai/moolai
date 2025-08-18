@@ -1,10 +1,8 @@
 """Prompt model for orchestrator service."""
 
 from sqlalchemy import Column, String, Boolean, DateTime, Text, Integer, JSON, Float
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy import ForeignKey
 from datetime import datetime
-import uuid
 from ..db.database import Base
 
 
@@ -13,11 +11,11 @@ class Prompt(Base):
 	__tablename__ = "prompts"
 	
 	# Primary key
-	prompt_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+	prompt_id = Column(String(255), primary_key=True)  # Format: "prompt_001_org_001"
 	
 	# References
-	organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.organization_id"), nullable=False, index=True)
-	user_id = Column(UUID(as_uuid=True), ForeignKey("users.user_id"), nullable=False, index=True)
+	organization_id = Column(String(255), ForeignKey("organizations.organization_id"), nullable=False, index=True)
+	user_id = Column(String(255), ForeignKey("users.user_id"), nullable=False, index=True)
 	
 	# Prompt metadata
 	name = Column(String(255), nullable=False)
@@ -44,7 +42,7 @@ class Prompt(Base):
 	
 	# Version control
 	version = Column(String(20), default="1.0")
-	parent_prompt_id = Column(UUID(as_uuid=True), ForeignKey("prompts.prompt_id"))  # For versioning
+	parent_prompt_id = Column(String(255), ForeignKey("prompts.prompt_id"))  # For versioning
 	
 	# Variables and placeholders
 	variables = Column(JSON, default=[])  # List of variable names used in prompt

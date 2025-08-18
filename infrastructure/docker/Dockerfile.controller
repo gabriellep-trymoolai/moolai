@@ -18,6 +18,10 @@ WORKDIR /app
 # Copy controller requirements
 COPY services/controller/requirements.txt .
 
+# Fix PATH to include pip user install directory
+# This prevents warnings about scripts not being in PATH
+ENV PATH="/root/.local/bin:$PATH"
+
 # Install Python dependencies
 RUN pip install --no-cache-dir --user -r requirements.txt
 
@@ -71,7 +75,7 @@ COPY --chown=moolai:moolai common/ ./common/
 ENV PYTHONPATH=/app \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PATH=/home/moolai/.local/bin:$PATH \
+    PATH="/home/moolai/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH" \
     CONTROLLER_PORT=8002 \
     LOG_LEVEL=INFO
 

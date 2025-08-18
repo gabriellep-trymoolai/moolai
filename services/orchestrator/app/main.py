@@ -8,6 +8,12 @@ from fastapi.middleware.cors import CORSMiddleware
 # Import database components
 from .db.database import db_manager, init_db
 
+# Import controller registration client
+from .services.controller_client import ensure_controller_registration, cleanup_controller_registration
+
+# Import API routers
+from .api.v1.orchestrator import router as orchestrator_router
+
 # Load environment variables
 from dotenv import load_dotenv
 load_dotenv()
@@ -30,11 +36,32 @@ async def lifespan(app: FastAPI):
         print("Orchestrator database initialized successfully")
     except Exception as e:
         print(f"Orchestrator database initialization failed: {e}")
+        raise  # Fail startup if database init fails
+    
+    # Register with controller (required for orchestrator to function)
+    try:
+        print("Registering with MoolAI Controller...")
+        await ensure_controller_registration()
+        print("Successfully registered with controller")
+    except Exception as e:
+        print(f"Controller registration failed: {e}")
+        print("Orchestrator cannot start without controller registration")
+        raise  # Fail startup if controller registration fails
     
     yield
     
     # Shutdown
     print("Shutting down MoolAI Orchestrator Service...")
+    
+    # Deregister from controller
+    try:
+        print("Deregistering from controller...")
+        await cleanup_controller_registration()
+        print("Successfully deregistered from controller")
+    except Exception as e:
+        print(f"Error during controller deregistration: {e}")
+    
+    # Close database connections
     try:
         await db_manager.close()
         print("Orchestrator database connections closed")
@@ -58,6 +85,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include API routers
+app.include_router(orchestrator_router, prefix="/api/v1")
 
 
 @app.get("/")

@@ -4,10 +4,8 @@ from sqlalchemy import (
     Column, String, Integer, Float, DateTime, Boolean, 
     DECIMAL, JSON, Index, text
 )
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.dialects.postgresql import JSONB
 from datetime import datetime
-import uuid
 from ..config.database import Base
 
 
@@ -16,8 +14,8 @@ class UserLLMStatistics(Base):
     __tablename__ = "user_llm_statistics"
     
     # Primary identifiers
-    user_id = Column(UUID(as_uuid=True), primary_key=True)
-    organization_id = Column(UUID(as_uuid=True), primary_key=True)
+    user_id = Column(String(255), primary_key=True)  # Format: "user_001_org_001"
+    organization_id = Column(String(255), primary_key=True)  # Format: "org_001"
     timestamp = Column(DateTime, primary_key=True)
     time_bucket = Column(String(20), primary_key=True)  # 'minute', 'hour', 'day', 'month'
     
@@ -64,9 +62,9 @@ class UserLLMRealtime(Base):
     """Real-time buffer for user LLM requests."""
     __tablename__ = "user_llm_realtime"
     
-    request_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), nullable=False)
-    organization_id = Column(UUID(as_uuid=True), nullable=False)
+    request_id = Column(String(255), primary_key=True)  # Format: "req_001_org_001"
+    user_id = Column(String(255), nullable=False)  # Format: "user_001_org_001"
+    organization_id = Column(String(255), nullable=False)  # Format: "org_001"
     
     # Request details
     agent_type = Column(String(50), nullable=False, default='prompt_response')
@@ -103,8 +101,8 @@ class UserLLMRealtime(Base):
     
     # Metadata
     department = Column(String(100))
-    session_id = Column(UUID(as_uuid=True))
-    trace_id = Column(UUID(as_uuid=True))  # For Langfuse integration
+    session_id = Column(String(255))  # Format: \"session_001_user_001\"
+    trace_id = Column(String(255))  # For Langfuse integration
     
     created_at = Column(DateTime, default=datetime.utcnow)
     
@@ -120,9 +118,9 @@ class UserSession(Base):
     """User session tracking."""
     __tablename__ = "user_sessions"
     
-    session_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), nullable=False)
-    organization_id = Column(UUID(as_uuid=True), nullable=False)
+    session_id = Column(String(255), primary_key=True)  # Format: "session_001_user_001"
+    user_id = Column(String(255), nullable=False)  # Format: "user_001_org_001"
+    organization_id = Column(String(255), nullable=False)  # Format: "org_001"
     
     # Session info
     start_time = Column(DateTime, nullable=False)

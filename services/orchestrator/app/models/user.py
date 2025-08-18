@@ -1,9 +1,7 @@
 """User model for orchestrator service."""
 
 from sqlalchemy import Column, String, Boolean, DateTime, Text, Integer
-from sqlalchemy.dialects.postgresql import UUID
 from datetime import datetime
-import uuid
 from ..db.database import Base
 
 
@@ -12,7 +10,7 @@ class User(Base):
 	__tablename__ = "users"
 	
 	# Primary key
-	user_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+	user_id = Column(String(255), primary_key=True)  # Format: "user_001_org_001"
 	
 	# Basic user information
 	username = Column(String(100), unique=True, nullable=False, index=True)

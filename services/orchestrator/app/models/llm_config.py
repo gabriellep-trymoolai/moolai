@@ -1,10 +1,8 @@
 """LLM Configuration model for orchestrator service."""
 
 from sqlalchemy import Column, String, Boolean, DateTime, Text, Integer, JSON, Float
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy import ForeignKey
 from datetime import datetime
-import uuid
 from ..db.database import Base
 
 
@@ -13,10 +11,10 @@ class LLMConfig(Base):
 	__tablename__ = "llm_configs"
 	
 	# Primary key
-	config_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+	config_id = Column(String(255), primary_key=True)  # Format: "llmconf_001_org_001"
 	
 	# Reference to organization
-	organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.organization_id"), nullable=False, index=True)
+	organization_id = Column(String(255), ForeignKey("organizations.organization_id"), nullable=False, index=True)
 	
 	# Model configuration
 	model_name = Column(String(100), nullable=False)  # e.g., "gpt-4", "gpt-3.5-turbo"
@@ -56,7 +54,7 @@ class LLMConfig(Base):
 	# Timestamps
 	created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 	updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-	created_by = Column(UUID(as_uuid=True), ForeignKey("users.user_id"))
+	created_by = Column(String(255), ForeignKey("users.user_id"))
 	
 	def __repr__(self):
 		return f"<LLMConfig(config_id={self.config_id}, name='{self.name}', model='{self.model_name}')>"

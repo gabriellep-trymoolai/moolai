@@ -1,0 +1,124 @@
+# MoolAI Controller Deployment
+# This runs on your central infrastructure
+version: '3.8'
+
+networks:
+  controller-network:
+    driver: bridge
+    name: ${DOCKER_NETWORK:-moolai-controller-network}
+
+volumes:
+  postgres-controller-data:
+    driver: local
+  controller-logs:
+    driver: local
+  controller-backups:
+    driver: local
+
+services:
+  # PostgreSQL Database for Controller
+  postgres-controller:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    networks:
+      - controller-network
+    ports:
+      - "${CONTROLLER_DB_PORT:-5432}:5432"
+    environment:
+      POSTGRES_DB: ${CONTROLLER_DB_NAME:-controller_db}
+      POSTGRES_USER: ${CONTROLLER_DB_USER:-controller_user}
+      POSTGRES_PASSWORD: ${CONTROLLER_DB_PASSWORD}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres-controller-data:/var/lib/postgresql/data
+      - controller-backups:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${CONTROLLER_DB_USER:-controller_user} -d ${CONTROLLER_DB_NAME:-controller_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '${DB_CPU_LIMIT:-2.0}'
+          memory: ${DB_MEMORY_LIMIT:-2048M}
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+
+  # MoolAI Controller Service
+  controller:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/Dockerfile.controller
+      args:
+        BUILD_DATE: ${BUILD_DATE:-$(date -u +'%Y-%m-%dT%H:%M:%SZ')}
+        VCS_REF: ${VCS_REF:-$(git rev-parse --short HEAD)}
+        VERSION: ${VERSION:-1.0.0}
+    image: moolai/controller:${IMAGE_TAG:-latest}
+    container_name: moolai-controller
+    restart: unless-stopped
+    networks:
+      - controller-network
+    ports:
+      - "${CONTROLLER_PORT:-8002}:8002"
+      - "${METRICS_EXPORT_PORT:-9090}:9090"
+    environment:
+      # Database Configuration
+      DATABASE_URL: postgresql+asyncpg://${CONTROLLER_DB_USER:-controller_user}:${CONTROLLER_DB_PASSWORD}@postgres-controller:5432/${CONTROLLER_DB_NAME:-controller_db}
+      
+      # Service Configuration
+      CONTROLLER_PORT: ${CONTROLLER_PORT:-8002}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      
+      # Security
+      API_KEY: ${CONTROLLER_API_KEY}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      ALGORITHM: ${ALGORITHM:-HS256}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      
+      # Admin Credentials
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      
+      # Monitoring
+      ENABLE_METRICS: ${ENABLE_METRICS:-true}
+      
+      # Python Settings
+      PYTHONPATH: /app
+      PYTHONDONTWRITEBYTECODE: 1
+      PYTHONUNBUFFERED: 1
+    volumes:
+      - controller-logs:/app/logs
+      - controller-backups:/app/backups
+      - ./config:/app/config:ro
+    depends_on:
+      postgres-controller:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${CONTROLLER_PORT:-8002}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '${CONTROLLER_CPU_LIMIT:-2.0}'
+          memory: ${CONTROLLER_MEMORY_LIMIT:-2048M}
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID

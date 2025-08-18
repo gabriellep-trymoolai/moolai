@@ -13,7 +13,7 @@ class Organization(Base):
 	__tablename__ = "organizations"
 	
 	# Primary key
-	organization_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+	organization_id = Column(String(255), primary_key=True)  # Format: "org_001"
 	
 	# Basic organization information
 	name = Column(String(255), unique=True, nullable=False, index=True)
@@ -81,8 +81,8 @@ class Organization(Base):
 	max_orchestrators = Column(Integer, default=1)  # Maximum allowed orchestrators
 	
 	# Administrative
-	created_by = Column(UUID(as_uuid=True), ForeignKey("users.user_id"))
-	managed_by = Column(UUID(as_uuid=True), ForeignKey("users.user_id"))
+	created_by = Column(String(255), ForeignKey("users.user_id"))
+	managed_by = Column(String(255), ForeignKey("users.user_id"))
 	
 	# Timestamps
 	created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
