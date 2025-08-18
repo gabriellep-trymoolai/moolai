@@ -7,7 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, desc, text
 import json
 
-from ...models import get_db, UserLLMRealtime, UserLLMStatistics
+from ...config.database import get_db
+from ...models.user_metrics import UserLLMRealtime, UserLLMStatistics
 from ...middleware import LLMMonitoringMiddleware
 from ..dependencies import get_monitoring_middleware
 

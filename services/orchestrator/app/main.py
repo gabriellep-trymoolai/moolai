@@ -146,10 +146,10 @@ app.add_middleware(
 # Include API routers
 app.include_router(orchestrator_router, prefix="/api/v1")
 
-# Include monitoring API routers
-app.include_router(monitoring_metrics_router, prefix="/api/v1", tags=["monitoring"])
-app.include_router(monitoring_streaming_router, prefix="/api/v1", tags=["streaming"])
-app.include_router(monitoring_websocket_router, prefix="/ws", tags=["websocket"])
+# Include monitoring API routers (routers already have their own prefixes)
+app.include_router(monitoring_metrics_router, tags=["monitoring"])
+app.include_router(monitoring_streaming_router, tags=["streaming"])
+app.include_router(monitoring_websocket_router, tags=["websocket"])
 
 
 @app.get("/")
