@@ -209,6 +209,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://orchestrator_user:secure_password_orch_001@postgres-orchestrator-001:5432/orchestrator_org_001
       MONITORING_DATABASE_URL: postgresql+asyncpg://monitoring_user:secure_password_001@postgres-org-001:5432/monitoring_org_001
       REDIS_URL: redis://redis-org-001:6379/0
+      REDIS_LLM_CACHE_URL: redis://redis-org-001:6379/1
       CONTROLLER_URL: http://controller:8002
       INTERNAL_URL: http://orchestrator-org-001:8000
       IMAGE_NAME: moolai/orchestrator:latest
@@ -256,6 +257,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://orchestrator_user:secure_password_orch_002@postgres-orchestrator-002:5432/orchestrator_org_002
       MONITORING_DATABASE_URL: postgresql+asyncpg://monitoring_user:secure_password_002@postgres-org-002:5432/monitoring_org_002
       REDIS_URL: redis://redis-org-002:6379/0
+      REDIS_LLM_CACHE_URL: redis://redis-org-002:6379/1
       CONTROLLER_URL: http://controller:8002
       INTERNAL_URL: http://orchestrator-org-002:8000
       IMAGE_NAME: moolai/orchestrator:latest

@@ -9,23 +9,15 @@ import asyncio
 from typing import Optional
 import httpx
 import logging
+import time
+import json
+import hashlib
+import numpy as np
 
-# Import local services
+# Import firewall services for security checks
 import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../services'))
-from Caching.cache import RedisCache, process_prompt, store_response
-from Caching.main import PromptRequest
 from Firewall.server import _pii_local, _secrets_local, _toxicity_local
-
-# Import evaluation services
-sys.path.append(os.path.join(os.path.dirname(__file__), '../../services/Evaluation'))
-from answer_correctness import evaluate_answer_correctness
-from answer_relevance import evaluate_answer_relevance
-from goal_accuracy import evaluate_goal_accuracy
-from hallucination import evaluate_hallucination
-from toxicity import evaluate_toxicity as eval_toxicity
-from summarization import evaluate_summarization
-from human_vs_ai import evaluate_human_vs_ai
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -43,12 +35,50 @@ client = AsyncOpenAI(api_key=openai_api_key)
 
 # Cache service configuration
 ENABLE_CACHING = os.getenv("ENABLE_CACHING", "true").lower() == "true"
+LLM_CACHE_REDIS_URL = os.getenv("REDIS_LLM_CACHE_URL", "redis://localhost:6379/1")
 
 # Firewall service configuration
 ENABLE_FIREWALL = os.getenv("ENABLE_FIREWALL", "true").lower() == "true"
 
-# Initialize local services
-cache_service = RedisCache() if ENABLE_CACHING else None
+# Initialize dedicated LLM cache (completely separate from monitoring cache)
+llm_cache_client = None
+if ENABLE_CACHING:
+    # Create dedicated Redis client for LLM cache only
+    import redis
+    from urllib.parse import urlparse
+    import json
+    import hashlib
+    from sentence_transformers import SentenceTransformer
+    
+    parsed_url = urlparse(LLM_CACHE_REDIS_URL)
+    redis_host = parsed_url.hostname or "localhost"
+    redis_port = parsed_url.port or 6379
+    redis_db = int(parsed_url.path.lstrip('/')) if parsed_url.path else 1
+    
+    try:
+        llm_cache_client = redis.Redis(
+            host=redis_host,
+            port=redis_port,
+            db=redis_db,
+            decode_responses=False,
+            socket_timeout=2,
+            socket_connect_timeout=2,
+            health_check_interval=30,
+        )
+        
+        # Test connection
+        llm_cache_client.ping()
+        logger.info(f"LLM cache connected to Redis DB {redis_db} at {redis_host}:{redis_port}")
+        
+        # Initialize sentence transformer for semantic similarity
+        sentence_model = SentenceTransformer('all-MiniLM-L6-v2')
+        
+    except Exception as e:
+        logger.warning(f"Failed to initialize LLM cache: {e}")
+        llm_cache_client = None
+
+# Set cache_service to None - we'll use llm_cache_client directly
+cache_service = None
 
 # Pydantic models
 class QueryRequest(BaseModel):
@@ -85,31 +115,84 @@ app.add_middleware(
 # System instruction
 SYSTEM_INSTRUCTION = "You are a helpful assistant. Provide clear, concise, and accurate responses to user questions."
 
-# Cache service integration
+# LLM Cache integration - completely separate from monitoring cache
 async def get_cached_response(query: str, session_id: str = "default") -> Optional[dict]:
-    """Try to get response from cache service"""
-    if not ENABLE_CACHING or not cache_service:
+    """Try to get response from dedicated LLM cache"""
+    if not ENABLE_CACHING or not llm_cache_client:
         return None
         
     try:
-        # Use local cache service
-        prompt_request = PromptRequest(session_id=session_id, message=query)
-        result = process_prompt(cache_service, prompt_request)
-        logger.info(f"Cache service response: from_cache={result.from_cache}, similarity={result.similarity}")
+        # Create cache key from query
+        cache_key = f"llm_cache:{session_id}:{hashlib.md5(query.encode()).hexdigest()}"
         
-        # Convert PromptResponse to dict for consistency
-        if result.from_cache:
+        # Check for exact match first
+        cached_data = llm_cache_client.get(cache_key)
+        if cached_data:
+            result = json.loads(cached_data.decode('utf-8'))
+            logger.info(f"LLM cache hit (exact): {cache_key}")
             return {
-                "response": result.response,
-                "from_cache": result.from_cache,
-                "similarity": result.similarity,
-                "session_id": result.session_id,
-                "label": result.label
+                "response": result["response"],
+                "from_cache": True,
+                "similarity": 1.0,
+                "session_id": session_id,
+                "cache_key": cache_key
             }
+        
+        # Semantic similarity search (simplified)
+        if 'sentence_model' in globals():
+            query_embedding = sentence_model.encode(query)
+            
+            # Search for similar queries in cache (simplified approach)
+            # For production, you'd want a more sophisticated vector search
+            pattern = f"llm_cache:{session_id}:*"
+            cache_keys = llm_cache_client.keys(pattern)
+            
+            for key in cache_keys[:10]:  # Limit to 10 most recent for performance
+                try:
+                    cached_data = llm_cache_client.get(key)
+                    if cached_data:
+                        cached_result = json.loads(cached_data.decode('utf-8'))
+                        if 'original_query' in cached_result:
+                            cached_embedding = sentence_model.encode(cached_result['original_query'])
+                            similarity = float(np.dot(query_embedding, cached_embedding) / 
+                                             (np.linalg.norm(query_embedding) * np.linalg.norm(cached_embedding)))
+                            
+                            if similarity >= 0.75:  # 75% similarity threshold
+                                logger.info(f"LLM cache hit (semantic): similarity={similarity:.3f}")
+                                return {
+                                    "response": cached_result["response"],
+                                    "from_cache": True,
+                                    "similarity": similarity,
+                                    "session_id": session_id,
+                                    "cache_key": key.decode('utf-8') if isinstance(key, bytes) else key
+                                }
+                except Exception as e:
+                    logger.debug(f"Error checking cached item {key}: {e}")
+                    continue
+        
         return None
     except Exception as e:
-        logger.error(f"Cache service error: {e}")
+        logger.error(f"LLM cache error: {e}")
         return None
+
+async def store_cached_response(query: str, response: str, session_id: str = "default", ttl: int = 3600):
+    """Store response in dedicated LLM cache"""
+    if not ENABLE_CACHING or not llm_cache_client:
+        return
+        
+    try:
+        cache_key = f"llm_cache:{session_id}:{hashlib.md5(query.encode()).hexdigest()}"
+        cache_data = {
+            "response": response,
+            "original_query": query,
+            "timestamp": time.time(),
+            "session_id": session_id
+        }
+        
+        llm_cache_client.setex(cache_key, ttl, json.dumps(cache_data))
+        logger.info(f"Stored in LLM cache: {cache_key}")
+    except Exception as e:
+        logger.error(f"Error storing in LLM cache: {e}")
 
 async def firewall_scan(text: str) -> dict:
     """
@@ -139,13 +222,13 @@ async def firewall_scan(text: str) -> dict:
         raise HTTPException(status_code=500, detail=f"Firewall error: {str(e)}")
 
 async def generate_llm_response(query: str, session_id: str = "default") -> dict:
-    """Generate LLM response with cache integration"""
+    """Generate LLM response with dedicated LLM cache integration"""
     
-    # Try cache first
+    # Try dedicated LLM cache first
     if ENABLE_CACHING:
         cache_result = await get_cached_response(query, session_id)
         if cache_result and cache_result.get("from_cache"):
-            logger.info(f"Cache HIT for session {session_id}")
+            logger.info(f"LLM Cache HIT for session {session_id} (similarity: {cache_result.get('similarity', 'exact')})")
             return {
                 "answer": cache_result["response"],
                 "session_id": session_id,
@@ -154,7 +237,7 @@ async def generate_llm_response(query: str, session_id: str = "default") -> dict
             }
     
     # Generate fresh response from OpenAI
-    logger.info(f"Cache MISS - generating fresh response for session {session_id}")
+    logger.info(f"LLM Cache MISS - generating fresh response for session {session_id}")
     response = await client.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=[
@@ -167,13 +250,10 @@ async def generate_llm_response(query: str, session_id: str = "default") -> dict
     
     answer = response.choices[0].message.content
     
-    # Store in cache if cache service is available
-    if ENABLE_CACHING and cache_service:
-        try:
-            store_response(cache_service, session_id, query, answer)
-            logger.info(f"Stored fresh response in cache for session {session_id}")
-        except Exception as e:
-            logger.warning(f"Failed to store in cache: {e}")
+    # Store in dedicated LLM cache (completely separate from monitoring)
+    if ENABLE_CACHING:
+        await store_cached_response(query, answer, session_id)
+        logger.info(f"Stored fresh response in dedicated LLM cache for session {session_id}")
     
     return {
         "answer": answer,

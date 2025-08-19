@@ -31,8 +31,18 @@ from ...services.controller_client import get_controller_client
 # Import database
 from ...db.database import get_db
 
-# Import agent models
-from ...agents.prompt_response import PromptRequest as AgentPromptRequest
+# Import agent models from main_response.py
+import os
+import sys
+current_dir = os.path.dirname(os.path.abspath(__file__))
+main_response_path = os.path.join(current_dir, '../../agents/Prompt Response')
+sys.path.insert(0, main_response_path)
+
+try:
+    from main_response import QueryRequest as AgentPromptRequest
+finally:
+    if main_response_path in sys.path:
+        sys.path.remove(main_response_path)
 
 router = APIRouter(prefix="/orchestrators/{organization_id}", tags=["Orchestrator"])
 
@@ -203,13 +213,8 @@ async def execute_prompt(
 		
 		# Convert API request to agent request
 		agent_request = AgentPromptRequest(
-			prompt=prompt_request.prompt,
-			user_id="api-user",  # TODO: Extract from authentication
-			organization_id=organization_id,
-			model=prompt_request.model,
-			temperature=prompt_request.temperature,
-			max_tokens=prompt_request.max_tokens,
-			stream=prompt_request.stream
+			query=prompt_request.prompt,  # Map 'prompt' to 'query' for QueryRequest
+			session_id=f"{organization_id}_api_session"
 		)
 		
 		# Process the prompt
