@@ -37,6 +37,9 @@ class PromptResponseAgent:
                     self.cost = result.get("cost", 0.0)
                     self.latency_ms = result.get("latency_ms", 0)
                     self.timestamp = datetime.now()
+                    # Add cache information
+                    self.from_cache = result.get("from_cache", False)
+                    self.cache_similarity = result.get("similarity", None)
             
             return AgentResponse(result)
             

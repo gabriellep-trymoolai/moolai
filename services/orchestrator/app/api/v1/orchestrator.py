@@ -228,7 +228,9 @@ async def execute_prompt(
 			"tokens_used": agent_response.total_tokens,
 			"cost": agent_response.cost,
 			"latency_ms": agent_response.latency_ms,
-			"created_at": agent_response.timestamp
+			"created_at": agent_response.timestamp,
+			"from_cache": getattr(agent_response, "from_cache", False),
+			"cache_similarity": getattr(agent_response, "cache_similarity", None)
 		}
 		
 		return create_success_response(
