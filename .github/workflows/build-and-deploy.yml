@@ -19,13 +19,14 @@ jobs:
       packages: write
 
     strategy:
+      max-parallel: 1
       matrix:
         service:
-          - name: orchestrator
-            dockerfile: infrastructure/docker/Dockerfile.orchestrator
-            context: .
           - name: controller
             dockerfile: infrastructure/docker/Dockerfile.controller
+            context: .
+          - name: orchestrator
+            dockerfile: infrastructure/docker/Dockerfile.orchestrator
             context: .
 
     steps:
