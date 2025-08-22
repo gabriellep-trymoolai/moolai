@@ -1,0 +1,458 @@
+
+[95m[1m======================================================================
+  Complete System Visual Test
+======================================================================[0m
+[1mThis test demonstrates ALL major MoolAI system components[0m
+[1mworking together in an integrated fashion.[0m
+
+[95m[1m======================================================================
+  Complete System Integration Test
+======================================================================[0m
+[1mTesting ALL major system components:[0m
+  🔒 Advanced Firewall System
+  💾 Smart Caching System
+  🤖 Enhanced Prompt-Response Agent
+  🔄 Session Management (WebSocket)
+  📊 Real-time Monitoring System
+
+[95m[1m======================================================================
+  Pre-Test System Health Check
+======================================================================[0m
+[92m✅ Orchestrator service is healthy[0m
+[92m📥 Orchestrator Response:[0m
+{
+  "status": "healthy",
+  "service": "orchestrator",
+  "version": "1.0.0",
+  "database": "connected"
+}
+[92m✅ Controller service is healthy[0m
+[92m📥 Controller Response:[0m
+{
+  "status": "healthy",
+  "service": "controller",
+  "version": "1.0.0",
+  "database": "connected"
+}
+[92m✅ System Monitoring service is healthy[0m
+[92m📥 System Monitoring Response:[0m
+{
+  "status": "healthy",
+  "service": "system-metrics",
+  "timestamp": "2025-08-22T00:56:58.105785"
+}
+
+[94m[1mStep 1: Capturing Initial System Metrics[0m
+[92m📥 Initial System Metrics:[0m
+{
+  "metrics_records": 500,
+  "latest_cpu_percent": 0.6,
+  "latest_memory_percent": 33.5,
+  "timestamp": "2025-08-22T00:56:36.564408"
+}
+
+[35m[1m--------------------------------------------------
+  Advanced Firewall System Testing
+--------------------------------------------------[0m
+
+[94m[1mStep 2: Testing PII Detection Firewall[0m
+[96m📤 PII Test Content:[0m
+  My email is john.doe@example.com and my SSN is 123-45-6789
+[92m📥 PII Scan Results:[0m
+{
+  "scan_id": "pii_scan_1755824218",
+  "content_length": 58,
+  "scan_type": "pii",
+  "risk_level": "critical",
+  "issues_found": 2,
+  "scan_time_ms": 0,
+  "timestamp": "2025-08-22T00:56:58.162288",
+  "detected_pii": [
+    {
+      "type": "email",
+      "description": "Email address",
+      "value": "john.doe@example.com",
+      "start_pos": 12,
+      "end_pos": 32,
+      "confidence": 0.8
+    },
+    {
+      "type": "ssn",
+      "description": "Social Security Number",
+      "value": "123-45-6789",
+      "start_pos": 47,
+      "end_pos": 58,
+      "confidence": 0.8
+    }
+  ],
+  "pii_types": [
+    "ssn",
+    "email"
+  ],
+  "confidence_score": 0.8
+}
+[93m🔍 Analysis:[0m
+  PII detected: False
+[93m🔍 Analysis:[0m
+  Risk level: critical
+
+[94m[1mStep 3: Testing Secrets Detection Firewall[0m
+[96m📤 Secrets Test Content:[0m
+  API_KEY=sk-1234567890abcdef and PASSWORD=mysecretpass123
+[92m📥 Secrets Scan Results:[0m
+{
+  "scan_id": "secrets_scan_1755824218",
+  "content_length": 56,
+  "scan_type": "secrets",
+  "risk_level": "high",
+  "issues_found": 1,
+  "scan_time_ms": 1,
+  "timestamp": "2025-08-22T00:56:58.164909",
+  "detected_secrets": [
+    {
+      "type": "password",
+      "description": "Password",
+      "value": "mysecretpa...",
+      "start_pos": 32,
+      "end_pos": 56,
+      "entropy": 3.4565647621309536,
+      "confidence": 0.7
+    }
+  ],
+  "secret_types": [
+    "password"
+  ],
+  "entropy_analysis": {
+    "overall_entropy": 5.137537511266054,
+    "high_entropy_segments": 0.0,
+    "average_word_entropy": 3.402188254043651
+  }
+}
+[93m🔍 Analysis:[0m
+  Secrets detected: False
+[93m🔍 Analysis:[0m
+  Risk level: high
+
+[94m[1mStep 4: Testing Toxicity Detection Firewall[0m
+[96m📤 Toxicity Test Content:[0m
+  This is a normal, polite message for testing.
+[92m📥 Toxicity Scan Results:[0m
+{
+  "scan_id": "toxicity_scan_1755824218",
+  "content_length": 45,
+  "scan_type": "toxicity",
+  "risk_level": "low",
+  "issues_found": 0,
+  "scan_time_ms": 0,
+  "timestamp": "2025-08-22T00:56:58.166629",
+  "toxicity_score": 0.0,
+  "detected_categories": [],
+  "flagged_phrases": []
+}
+[93m🔍 Analysis:[0m
+  Toxicity detected: False
+[93m🔍 Analysis:[0m
+  Confidence score: unknown
+
+[35m[1m--------------------------------------------------
+  Smart Caching System Testing
+--------------------------------------------------[0m
+
+[94m[1mStep 5: Testing Cache Miss (First Request)[0m
+[96m📤 Cache Test Prompt:[0m
+  What is the capital of France?
+[92m📥 Cache Miss Response:[0m
+{
+  "prompt_id": "prompt_8bba428c",
+  "response": "The capital of France is Paris.",
+  "model": "gpt-3.5-turbo",
+  "session_id": "test_cache_session",
+  "user_id": "test_user_a489e19c",
+  "timestamp": "2025-08-22T00:56:58.172215",
+  "total_tokens": 0,
+  "prompt_tokens": 6,
+  "completion_tokens": -6,
+  "cost": 0.0,
+  "latency_ms": 3,
+  "from_cache": true,
+  "cache_similarity": 1.0,
+  "confidence_score": null,
+  "relevance_score": null
+}
+[35m📊 Response Time: [1m0.01s[0m
+[93m🔍 Analysis:[0m
+  Cache hit: True
+[93m🔍 Analysis:[0m
+  Response source: cache
+
+[94m[1mStep 6: Testing Cache Hit (Identical Request)[0m
+[92m📥 Cache Hit Response:[0m
+{
+  "prompt_id": "prompt_7086ee0c",
+  "response": "The capital of France is Paris.",
+  "model": "gpt-3.5-turbo",
+  "session_id": "test_cache_session",
+  "user_id": "test_user_a489e19c",
+  "timestamp": "2025-08-22T00:56:58.174557",
+  "total_tokens": 0,
+  "prompt_tokens": 6,
+  "completion_tokens": -6,
+  "cost": 0.0,
+  "latency_ms": 0,
+  "from_cache": true,
+  "cache_similarity": 1.0,
+  "confidence_score": null,
+  "relevance_score": null
+}
+[35m📊 Response Time: [1m0.00s[0m
+[93m🔍 Analysis:[0m
+  Cache hit: True
+[93m🔍 Analysis:[0m
+  Response source: cache
+
+[94m[1mStep 7: Checking Cache Statistics[0m
+[92m📥 Cache Statistics:[0m
+{
+  "detail": "Failed to get cache statistics: "
+}
+[35m📊 Total Cache Entries: [1m0[0m
+[35m📊 Cache Hit Rate: [1m0.00%[0m
+[35m📊 Memory Usage: [1munknown[0m
+
+[35m[1m--------------------------------------------------
+  Enhanced Prompt-Response Agent Testing
+--------------------------------------------------[0m
+
+[94m[1mStep 8: Testing Direct Agent API[0m
+[96m📤 Agent Prompt:[0m
+{
+  "query": "Explain quantum computing in simple terms",
+  "user_id": "test_user_a489e19c",
+  "enable_evaluation": true,
+  "model": "gpt-3.5-turbo"
+}
+[92m📥 Agent Response:[0m
+{
+  "agent_response_id": "agent_2353c91f",
+  "query": "Explain quantum computing in simple terms",
+  "response": "Quantum computing is a type of computing that uses quantum-mechanical phenomena, such as superposition and entanglement, to perform operations on data. In simple terms, while classical computers use bits (0s and 1s) to store and process information, quantum computers use quantum bits or qubits, which can represent both 0 and 1 simultaneously due to superposition.\n\nThis unique property allows quantum computers to perform certain calculations much faster than classical computers for specific types of problems, such as factoring large numbers or simulating complex systems. Additionally, qubits can be entangled, meaning the state of one qubit is dependent on the state of another, enabling quantum computers to process information in a highly interconnected way.\n\nOverall, quantum computing has the potential to revolutionize fields like cryptography, drug discovery, optimization, and artificial intelligence by solving problems that are currently intractable for classical computers.",
+  "session_id": "agent_session_8e6f8944",
+  "user_id": "test_user_a489e19c",
+  "timestamp": "2025-08-22T00:57:00.358332",
+  "model": "gpt-3.5-turbo",
+  "total_tokens": 0,
+  "cost": 0.0,
+  "latency_ms": 2180,
+  "from_cache": false,
+  "cache_similarity": null,
+  "evaluation_enabled": true,
+  "confidence_score": null,
+  "relevance_score": null,
+  "processing_time_ms": 2180,
+  "organization_id": "org_001"
+}
+[93m🔍 Analysis:[0m
+  Response quality: unknown
+[93m🔍 Analysis:[0m
+  Token usage: unknown
+[93m🔍 Analysis:[0m
+  Processing time: unknowns
+
+[35m[1m--------------------------------------------------
+  Session Management WebSocket Testing
+--------------------------------------------------[0m
+
+[94m[1mStep 9: Establishing WebSocket Connection[0m
+[96m📤 WebSocket URL:[0m
+  ws://localhost:8000/ws/chat?user_id=test_user_a489e19c&session_id=session_9c78e0bb
+[92m✅ WebSocket connected[0m
+[92m📥 Connection Response:[0m
+{
+  "message_id": null,
+  "timestamp": "2025-08-22T00:57:00.390793+00:00",
+  "session_id": "session_9c78e0bb",
+  "user_id": "test_user_a489e19c",
+  "type": "session_established",
+  "data": {
+    "session_id": "session_9c78e0bb",
+    "user_id": "test_user_a489e19c",
+    "created_at": "2025-08-22T00:57:00.390661+00:00",
+    "conversations": [],
+    "session_metadata": {
+      "connection_method": "websocket",
+      "established_at": "2025-08-22T00:57:00.390663+00:00"
+    },
+    "capabilities": {
+      "send_message": true,
+      "join_conversation": true,
+      "heartbeat": true,
+      "disconnect": true
+    }
+  },
+  "side_effects": [
+    "buffer_manager_updated",
+    "presence_updated"
+  ],
+  "session_state": "active",
+  "debug_info": {
+    "side_effects": [
+      "buffer_manager_updated",
+      "presence_updated"
+    ],
+    "action_success": true
+  }
+}
+[93m🔍 Analysis:[0m
+  Session state: active
+
+[94m[1mStep 10: Sending Message Through Session Management[0m
+[96m📤 WebSocket Message:[0m
+{
+  "type": "send_message",
+  "message_id": "6165f7ac-806c-4447-a543-ae3b9acd361e",
+  "data": {
+    "content": "How does machine learning work?",
+    "timestamp": "2025-08-22T00:57:00.393163"
+  }
+}
+[92m📥 Message Received Response:[0m
+{
+  "message_id": "6165f7ac-806c-4447-a543-ae3b9acd361e",
+  "timestamp": "2025-08-22T00:57:00.393301+00:00",
+  "session_id": "session_9c78e0bb",
+  "user_id": "test_user_a489e19c",
+  "type": "message_received",
+  "data": {
+    "message_id": "63aea153-e902-4df3-b405-6afbcc57dc07",
+    "conversation_id": "6a0ef259-6826-4f33-8fbf-37dace887506",
+    "sequence_number": 1,
+    "processing_status": "received",
+    "timestamp": "2025-08-22T00:57:00.393301+00:00",
+    "content_length": 0,
+    "next_steps": [
+      "processing",
+      "ai_response_expected"
+    ]
+  },
+  "side_effects": [
+    "message_buffered",
+    "session_updated"
+  ],
+  "session_state": "processing",
+  "debug_info": {
+    "side_effects": [
+      "message_buffered",
+      "session_updated"
+    ],
+    "action_success": true
+  }
+}
+[92m📥 AI Assistant Response:[0m
+{
+  "type": "assistant_response",
+  "data": {
+    "message_id": "9f8081b6-1902-4f4a-b4bc-1eb73bb742bc",
+    "conversation_id": "6a0ef259-6826-4f33-8fbf-37dace887506",
+    "content_delta": "This is a placeholder AI response.",
+    "is_complete": true,
+    "sequence_number": 2,
+    "metadata": {
+      "model": "placeholder"
+    }
+  },
+  "timestamp": "2025-08-22T00:57:00.393431"
+}
+[93m🔍 Analysis:[0m
+  Session processing: processing
+[93m🔍 Analysis:[0m
+  AI response length: 34
+
+[35m[1m--------------------------------------------------
+  Real-time Monitoring System Testing
+--------------------------------------------------[0m
+
+[94m[1mStep 11: Triggering Immediate Metrics Collection[0m
+[92m📥 Metrics Collection Response:[0m
+{
+  "metric_id": "metric_1755824221_395f035c",
+  "user_id": "395f035c-b40b-5916-a07b-a18756e413e3",
+  "organization_id": "e33e86f8-0c02-5840-a5be-20603f54a64a",
+  "timestamp": "2025-08-22T00:57:01.407164",
+  "cpu_usage_percent": 0.4,
+  "cpu_load_1min": 1.86767578125,
+  "cpu_load_5min": 1.37841796875,
+  "cpu_load_15min": 1.14208984375,
+  "cpu_cores_used": 0.032,
+  "memory_usage_mb": 2336,
+  "memory_percent": 33.2,
+  "memory_available_mb": 5235,
+  "memory_total_mb": 7837,
+  "swap_usage_mb": 0,
+  "swap_percent": 0.0,
+  "storage_usage_gb": 23.24,
+  "storage_percent": 2.31,
+  "storage_available_gb": 932.39,
+  "storage_total_gb": 1006.85,
+  "disk_read_mb_s": 138.28653971354166,
+  "disk_write_mb_s": 2155.7515625,
+  "iops_read": 392127,
+  "iops_write": 1045477,
+  "network_in_mb_s": 1.64,
+  "network_out_mb_s": 0.02,
+  "network_connections": 18,
+  "api_latency_ms": null,
+  "db_latency_ms": null,
+  "redis_latency_ms": null,
+  "system_latency_ms": null,
+  "container_count": null,
+  "service_count": null,
+  "container_restarts": null,
+  "process_count": 1,
+  "thread_count": 46,
+  "file_descriptors": 40,
+  "collected_by": "psutil+docker",
+  "collection_duration_ms": 1010,
+  "created_at": "2025-08-22T00:57:01.409721"
+}
+
+[94m[1mStep 12: Retrieving Updated System Metrics[0m
+[92m📥 Updated System Metrics:[0m
+{
+  "metrics_records": 500,
+  "latest_cpu_percent": 0.6,
+  "latest_memory_percent": 33.5,
+  "timestamp": "2025-08-22T00:56:36.564408"
+}
+[93m🔍 Analysis:[0m
+  Metrics Comparison:
+[35m📊 CPU Change: [1m0.6% → 0.6%[0m
+[35m📊 Memory Change: [1m33.5% → 33.5%[0m
+
+[94m[1mStep 13: Testing Server-Sent Events Stream[0m
+[96m📤 SSE Stream URL:[0m
+  http://localhost:8000/api/v1/stream
+[93m🔍 Analysis:[0m
+  Starting 5-second SSE stream monitoring...
+[92m✅ SSE stream endpoint available (streams real-time metrics)[0m
+[92m✅ WebSocket disconnected cleanly[0m
+
+[95m[1m======================================================================
+  Complete System Test Summary
+======================================================================[0m
+[92m✅ All major system components tested successfully![0m
+
+[1mSystem Components Verified:[0m
+  ✅ Advanced Firewall: PII, Secrets, and Toxicity Detection
+  ✅ Smart Caching: Semantic similarity with Redis
+  ✅ Prompt-Response Agent: LLM integration with evaluation
+  ✅ Session Management: State machine with WebSocket
+  ✅ Real-time Monitoring: Metrics collection and streaming
+
+[1mIntegration Points Tested:[0m
+  🔗 Firewall → Agent Pipeline
+  🔗 Cache → Response Optimization
+  🔗 Session → State Management
+  🔗 Monitoring → All Components
+
+[92m[1m🎉 Complete system test successful![0m
+[1mAll major components are working and integrated properly.[0m

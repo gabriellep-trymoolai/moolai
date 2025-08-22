@@ -1,5 +1,30 @@
-# Multi-stage build for MoolAI Orchestrator Service
-FROM python:3.11-slim as builder
+# Multi-stage build for MoolAI Orchestrator Service with Frontend
+FROM node:18-alpine as frontend-builder
+
+# Set build arguments
+ARG BUILD_DATE
+ARG VCS_REF
+ARG VERSION=1.0.0
+
+# Set working directory for frontend
+WORKDIR /frontend
+
+# Copy frontend package files first for better caching
+COPY services/orchestrator/app/gui/frontend/package*.json ./
+
+# Clear npm cache and install dependencies with force to handle architecture issues
+RUN npm cache clean --force && \
+    rm -rf node_modules package-lock.json && \
+    npm install --no-package-lock --legacy-peer-deps
+
+# Copy frontend source code
+COPY services/orchestrator/app/gui/frontend ./
+
+# Build frontend
+RUN npm run build
+
+# Python backend builder stage
+FROM python:3.11-slim as backend-builder
 
 # Set build arguments
 ARG BUILD_DATE
@@ -61,12 +86,15 @@ RUN groupadd -r moolai && useradd -r -g moolai moolai \
 # Set working directory
 WORKDIR /app
 
-# Copy Python dependencies from builder stage
-COPY --from=builder --chown=moolai:moolai /root/.local /home/moolai/.local
+# Copy Python dependencies from backend builder stage
+COPY --from=backend-builder --chown=moolai:moolai /root/.local /home/moolai/.local
 
 # Copy orchestrator application code
 COPY --chown=moolai:moolai services/orchestrator/app ./app/
 COPY --chown=moolai:moolai services/orchestrator/requirements.txt ./
+
+# Copy built frontend from frontend builder stage
+COPY --from=frontend-builder --chown=moolai:moolai /frontend/dist ./app/gui/frontend/dist
 
 # Copy common modules for real-time communication
 COPY --chown=moolai:moolai common/ ./common/

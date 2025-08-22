@@ -17,7 +17,7 @@ BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
 VCS_REF=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 VERSION=${VERSION:-"1.0.0"}
 REGISTRY=${REGISTRY:-"moolai"}
-BUILD_TYPE=${1:-"production"}
+BUILD_TYPE=${1:-"development"}
 
 echo -e "${BLUE}=== MoolAI Complete System Build ===${NC}"
 echo "Build Date: $BUILD_DATE"
@@ -30,9 +30,48 @@ echo ""
 # Export variables for docker-compose
 export BUILD_DATE VCS_REF VERSION
 
+# Function to build frontend locally before Docker build
+build_frontend() {
+    echo -e "${YELLOW}Building frontend locally...${NC}"
+    
+    cd services/orchestrator/app/gui/frontend
+    
+    # Check if npm is available
+    if ! command -v npm &> /dev/null; then
+        echo -e "${RED}❌ npm not found. Please install Node.js and npm${NC}"
+        exit 1
+    fi
+    
+    # Install dependencies if node_modules doesn't exist
+    if [[ ! -d "node_modules" ]]; then
+        echo -e "${YELLOW}Installing frontend dependencies...${NC}"
+        npm install
+    fi
+    
+    # Build the frontend
+    echo -e "${YELLOW}Building React frontend...${NC}"
+    npm run build
+    
+    # Verify build output
+    if [[ -d "dist" ]]; then
+        echo -e "${GREEN}✓ Frontend built successfully${NC}"
+        echo -e "Frontend build size: $(du -sh dist | cut -f1)"
+    else
+        echo -e "${RED}❌ Frontend build failed - dist directory not found${NC}"
+        exit 1
+    fi
+    
+    cd - > /dev/null
+}
+
 # Function to build with Docker Compose
 build_with_compose() {
     echo -e "${YELLOW}Building all services with Docker Compose...${NC}"
+    
+    # Build frontend first if not in production mode
+    if [[ "$BUILD_TYPE" != "production" && "$BUILD_TYPE" != "prod" ]]; then
+        build_frontend
+    fi
     
     # Build all services
     docker-compose build \
@@ -47,6 +86,9 @@ build_with_compose() {
 # Function to build individual services
 build_individual_services() {
     echo -e "${YELLOW}Building individual services...${NC}"
+    
+    # Build frontend first for orchestrator service
+    build_frontend
     
     # Array of services and their Dockerfiles
     declare -a services=(
@@ -143,6 +185,26 @@ run_tests() {
     fi
 }
 
+# Function to start containers in development mode
+start_development_containers() {
+    echo -e "\n${BLUE}=== Starting Development Containers ===${NC}"
+    
+    # Stop any existing containers first
+    echo -e "${YELLOW}Stopping existing containers...${NC}"
+    docker-compose down 2>/dev/null || true
+    
+    # Start containers in development mode (with live logs)
+    echo -e "${YELLOW}Starting containers in development mode...${NC}"
+    docker-compose up -d
+    
+    # Wait a moment for containers to initialize
+    sleep 3
+    
+    # Show container status
+    echo -e "\n${GREEN}✓ Containers started in development mode${NC}"
+    docker-compose ps
+}
+
 # Function to show final results
 show_results() {
     echo -e "\n${BLUE}=== Build Results ===${NC}"
@@ -172,8 +234,12 @@ case "$BUILD_TYPE" in
     "individual"|"services")
         build_individual_services
         ;;
-    "production"|"prod"|*)
-        echo -e "${YELLOW}Building with Docker Compose (recommended for production)...${NC}"
+    "production"|"prod")
+        echo -e "${YELLOW}Building with Docker Compose (production mode)...${NC}"
+        build_with_compose
+        ;;
+    "development"|"dev"|*)
+        echo -e "${YELLOW}Building with Docker Compose (development mode)...${NC}"
         build_with_compose
         ;;
 esac
@@ -187,30 +253,45 @@ if [[ "$BUILD_TYPE" != "quick" ]]; then
     fi
 fi
 
+# Start containers in development mode
+start_development_containers
+
 # Show results
 show_results
 
-echo -e "\n${GREEN}=== Build Complete! ===${NC}"
-echo -e "Services available:"
+echo -e "\n${GREEN}=== Build Complete! System Running in Development Mode ===${NC}"
+echo -e "Services are now running and available:"
+echo -e "  - ${BLUE}🌐 MoolAI Frontend UI:      http://localhost:8000${NC}"
+echo -e "    → Dashboard Chat:          http://localhost:8000/dashboard"
+echo -e "    → Analytics:               http://localhost:8000/analytics"
+echo -e "    → Configuration:           http://localhost:8000/configuration/keys"
+echo -e "    → WebSocket Test:          http://localhost:8000/test-websocket"
 echo -e "  - Orchestrator (Org 001):   http://localhost:8000"
+echo -e "    → Health Check:            http://localhost:8000/health"
 echo -e "    → Embedded Monitoring:     http://localhost:8000/api/v1/system/metrics"
-echo -e "    → SSE Metrics:             http://localhost:8000/api/v1/stream/metrics/organization"
-echo -e "    → WebSocket Admin:         ws://localhost:8000/ws/admin/control"
+echo -e "    → Cache API:               http://localhost:8000/api/v1/cache/stats"
+echo -e "    → LLM API:                 http://localhost:8000/api/v1/llm/prompt"
+echo -e "    → Agent API:               http://localhost:8000/api/v1/agents/prompt-response"
+echo -e "    → Firewall API:            http://localhost:8000/api/v1/firewall/scan/pii"
+echo -e "    → WebSocket Chat:          ws://localhost:8000/ws/chat"
 echo -e "  - Orchestrator (Org 002):   http://localhost:8010"
+echo -e "    → Health Check:            http://localhost:8010/health"
 echo -e "    → Embedded Monitoring:     http://localhost:8010/api/v1/system/metrics"
-echo -e "    → SSE Metrics:             http://localhost:8010/api/v1/stream/metrics/organization"
-echo -e "    → WebSocket Admin:         ws://localhost:8010/ws/admin/control"
-echo -e "  - Controller:                http://localhost:8002"
+echo -e "  - Controller:                http://localhost:9000"
+echo -e "    → Health Check:            http://localhost:9000/health"
 echo ""
-echo -e "${BLUE}Real-time Features Available:${NC}"
-echo -e "  - Server-Sent Events (SSE) for live metrics streaming"
-echo -e "  - WebSocket for bidirectional admin control"
-echo -e "  - Multi-tenant isolation with organization-level channels"
-echo -e "  - JavaScript/React client libraries in client/js/"
+echo -e "${BLUE}Development Commands:${NC}"
+echo -e "  View live logs:      ${YELLOW}docker-compose logs -f${NC}"
+echo -e "  View specific logs:  ${YELLOW}docker-compose logs -f orchestrator-org-001${NC}"
+echo -e "  Stop the system:     ${YELLOW}docker-compose down${NC}"
+echo -e "  Restart a service:   ${YELLOW}docker-compose restart orchestrator-org-001${NC}"
 echo ""
-echo -e "To start the system: ${YELLOW}docker-compose up -d${NC}"
-echo -e "To view logs:        ${YELLOW}docker-compose logs -f${NC}"
-echo -e "To stop the system:  ${YELLOW}docker-compose down${NC}"
-echo ""
-echo -e "For development:     ${YELLOW}docker-compose up${NC} (without -d for live logs)"
-echo -e "Test real-time:      ${YELLOW}curl -N -H \"Accept: text/event-stream\" \"http://localhost:8000/api/v1/stream/system/health\"${NC}"
+echo -e "${BLUE}Quick Health Tests:${NC}"
+echo -e "  Test frontend UI:    ${YELLOW}curl http://localhost:8000${NC}"
+echo -e "  Test orchestrator:   ${YELLOW}curl http://localhost:8000/health${NC}"
+echo -e "  Test controller:     ${YELLOW}curl http://localhost:9000/health${NC}"
+echo -e "  Test monitoring:     ${YELLOW}curl http://localhost:8000/api/v1/system/health${NC}"
+echo -e "  Test cache:          ${YELLOW}curl http://localhost:8000/api/v1/cache/stats${NC}"
+echo -e ""
+echo -e "${GREEN}🎉 MoolAI System with Integrated UI is Ready!${NC}"
+echo -e "Open your browser to: ${BLUE}http://localhost:8000${NC}"

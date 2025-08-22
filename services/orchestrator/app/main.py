@@ -1,9 +1,12 @@
 """Main FastAPI application for orchestrator service."""
 
 import os
+from pathlib import Path
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 # Import database components
 from .db.database import db_manager, init_db
@@ -13,11 +16,16 @@ from .services.controller_client import ensure_controller_registration, cleanup_
 
 # Import API routers
 from .api.v1.orchestrator import router as orchestrator_router
+from .api.routes_websocket import router as websocket_router
+from .api.routes_cache import router as cache_router
+from .api.routes_llm import router as llm_router, agents_router
+from .api.routes_firewall import router as firewall_router
 
 # Import monitoring API routers
 from .monitoring.api.routers.system_metrics import router as monitoring_metrics_router
 from .monitoring.api.routers.streaming import router as monitoring_streaming_router
 from .monitoring.api.routers.websocket import router as monitoring_websocket_router
+from .monitoring.api.routers.analytics import router as analytics_router
 
 # Import agents
 from .agents import PromptResponseAgent
@@ -68,6 +76,44 @@ async def lifespan(app: FastAPI):
         print(f"Prompt-Response Agent initialization failed: {e}")
         app.state.prompt_agent = None
     
+    # Initialize session management system
+    try:
+        from .utils.session_config import session_config
+        from .utils.buffer_manager import buffer_manager
+        from .utils.session_dispatch import cleanup_expired_sessions
+        import asyncio
+        
+        print("Initializing session management system...")
+        
+        # Initialize session configuration
+        config = session_config.get_config()
+        print(f"Session management enabled for organization: {config.get('orchestrator_id')}")
+        
+        # Set up periodic session cleanup
+        async def periodic_session_cleanup():
+            while True:
+                try:
+                    timeout = session_config.get_session_config().get('timeout_seconds', 1800)
+                    interval = session_config.get_session_config().get('cleanup_interval', 300)
+                    cleanup_expired_sessions(timeout)
+                    await asyncio.sleep(interval)
+                except Exception as e:
+                    print(f"Session cleanup error: {e}")
+                    await asyncio.sleep(60)  # Retry in 1 minute on error
+        
+        # Start background session cleanup
+        cleanup_task = asyncio.create_task(periodic_session_cleanup())
+        app.state.session_cleanup_task = cleanup_task
+        app.state.session_config = session_config
+        app.state.buffer_manager = buffer_manager
+        
+        print("Session management system initialized")
+    except Exception as e:
+        print(f"Session management initialization failed: {e}")
+        app.state.session_cleanup_task = None
+        app.state.session_config = None
+        app.state.buffer_manager = None
+    
     # Initialize embedded monitoring system
     try:
         from .monitoring.middleware.system_monitoring import SystemPerformanceMiddleware
@@ -100,6 +146,19 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     print("Shutting down MoolAI Orchestrator Service...")
+    
+    # Stop session management
+    try:
+        if hasattr(app.state, 'session_cleanup_task') and app.state.session_cleanup_task:
+            print("Stopping session management...")
+            app.state.session_cleanup_task.cancel()
+            try:
+                await app.state.session_cleanup_task
+            except asyncio.CancelledError:
+                pass
+            print("Session management stopped")
+    except Exception as e:
+        print(f"Error stopping session management: {e}")
     
     # Stop embedded monitoring
     try:
@@ -145,16 +204,50 @@ app.add_middleware(
 
 # Include API routers
 app.include_router(orchestrator_router, prefix="/api/v1")
+app.include_router(websocket_router)  # WebSocket router has its own /ws prefix
+app.include_router(cache_router)    # Cache router already has prefix
+app.include_router(llm_router)      # LLM router already has prefix
+app.include_router(agents_router)   # Agents router already has prefix
+app.include_router(firewall_router) # Firewall router already has prefix
 
 # Include monitoring API routers (routers already have their own prefixes)
 app.include_router(monitoring_metrics_router, tags=["monitoring"])
 app.include_router(monitoring_streaming_router, tags=["streaming"])
 app.include_router(monitoring_websocket_router, tags=["websocket"])
+app.include_router(analytics_router, prefix="/api/v1", tags=["analytics"])
 
-
-@app.get("/")
-def root():
-    return {"message": "MoolAI Orchestrator Service", "version": "1.0.0", "status": "running"}
+# Setup static file serving for frontend
+frontend_dist_path = Path(__file__).parent / "gui" / "frontend" / "dist"
+if frontend_dist_path.exists():
+    # Mount static assets
+    app.mount("/assets", StaticFiles(directory=str(frontend_dist_path / "assets")), name="assets")
+    
+    @app.get("/")
+    def serve_frontend():
+        """Serve the frontend SPA."""
+        return FileResponse(str(frontend_dist_path / "index.html"))
+    
+    @app.get("/{path:path}")
+    def catch_all(request: Request, path: str):
+        """Catch all routes and serve the frontend SPA for client-side routing."""
+        # Exclude API routes
+        if path.startswith("api/") or path.startswith("ws/"):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="API endpoint not found")
+        
+        # Serve static files if they exist
+        file_path = frontend_dist_path / path
+        if file_path.exists() and file_path.is_file():
+            return FileResponse(str(file_path))
+        
+        # Fallback to index.html for SPA routes
+        return FileResponse(str(frontend_dist_path / "index.html"))
+else:
+    print("Warning: Frontend dist directory not found, serving API only")
+    
+    @app.get("/")
+    def root():
+        return {"message": "MoolAI Orchestrator Service", "version": "1.0.0", "status": "running"}
 
 
 @app.get("/health")

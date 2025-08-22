@@ -170,7 +170,7 @@ async def collect_organization_system_metrics(
             org_uuid = uuid.uuid5(uuid.NAMESPACE_DNS, organization_id)
         
         metrics = await system_metrics_service.record_organization_system_metrics(organization_id, db)
-        return SystemMetricsResponse.from_orm(metrics)
+        return SystemMetricsResponse.model_validate(metrics)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error collecting system metrics: {str(e)}")
 
@@ -206,7 +206,7 @@ async def collect_system_metrics(
             org_uuid = uuid.uuid5(uuid.NAMESPACE_DNS, organization_id)
         
         metrics = await system_metrics_service.record_system_metrics(user_uuid, org_uuid, db)
-        return SystemMetricsResponse.from_orm(metrics)
+        return SystemMetricsResponse.model_validate(metrics)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error collecting system metrics: {str(e)}")
 
@@ -240,7 +240,7 @@ async def get_organization_system_metrics(
         result = await db.execute(query)
         metrics = result.scalars().all()
         
-        return [SystemMetricsResponse.from_orm(metric) for metric in metrics]
+        return [SystemMetricsResponse.model_validate(metric) for metric in metrics]
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error retrieving organization metrics: {str(e)}")
@@ -271,7 +271,7 @@ async def get_latest_organization_metrics(
         metric = result.scalar_one_or_none()
         
         if metric:
-            return SystemMetricsResponse.from_orm(metric)
+            return SystemMetricsResponse.model_validate(metric)
         return None
         
     except Exception as e:
@@ -307,7 +307,7 @@ async def get_user_system_metrics(
         result = await db.execute(query)
         metrics = result.scalars().all()
         
-        return [SystemMetricsResponse.from_orm(metric) for metric in metrics]
+        return [SystemMetricsResponse.model_validate(metric) for metric in metrics]
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error retrieving system metrics: {str(e)}")
@@ -334,7 +334,7 @@ async def get_latest_user_metrics(
         metric = result.scalar_one_or_none()
         
         if metric:
-            return SystemMetricsResponse.from_orm(metric)
+            return SystemMetricsResponse.model_validate(metric)
         return None
         
     except Exception as e:
@@ -495,7 +495,7 @@ async def get_orchestrator_versions(
         result = await db.execute(query)
         versions = result.scalars().all()
         
-        return [VersionHistoryResponse.from_orm(version) for version in versions]
+        return [VersionHistoryResponse.model_validate(version) for version in versions]
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error retrieving version history: {str(e)}")
@@ -524,7 +524,7 @@ async def get_component_versions(
         result = await db.execute(query)
         versions = result.scalars().all()
         
-        return [VersionHistoryResponse.from_orm(version) for version in versions]
+        return [VersionHistoryResponse.model_validate(version) for version in versions]
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error retrieving component versions: {str(e)}")
@@ -559,7 +559,7 @@ async def record_version_update(
             version_record.deployment_notes = deployment_notes
             await db.commit()
         
-        return VersionHistoryResponse.from_orm(version_record)
+        return VersionHistoryResponse.model_validate(version_record)
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error recording version update: {str(e)}")
@@ -598,7 +598,7 @@ async def get_system_alerts(
         result = await db.execute(query)
         alerts = result.scalars().all()
         
-        return [SystemAlertResponse.from_orm(alert) for alert in alerts]
+        return [SystemAlertResponse.model_validate(alert) for alert in alerts]
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error retrieving system alerts: {str(e)}")
@@ -610,11 +610,15 @@ async def get_system_alerts(
 
 @router.post("/collect/immediate")
 async def collect_system_metrics_immediate(
-    organization_id: str = Query(..., description="Organization ID"),
+    organization_id: Optional[str] = Query(None, description="Organization ID (defaults to org_001)"),
     db: AsyncSession = Depends(get_db)
 ) -> Dict[str, Any]:
     """Force immediate collection of system metrics for an organization."""
     try:
+        # Use default organization if none provided
+        if organization_id is None:
+            organization_id = "org_001"
+        
         # Convert organization ID to UUID if needed
         try:
             org_uuid = uuid.UUID(organization_id)

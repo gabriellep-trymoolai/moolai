@@ -23,6 +23,16 @@ from Firewall.server import _pii_local, _secrets_local, _toxicity_local
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Import monitoring middleware - conditional to avoid import issues
+monitoring_middleware = None
+LLMMonitoringMiddleware = None
+try:
+    sys.path.append(os.path.join(os.path.dirname(__file__), '../../'))
+    from monitoring.middleware.monitoring import LLMMonitoringMiddleware
+except ImportError as e:
+    logger.warning(f"Could not import monitoring middleware: {e}")
+    LLMMonitoringMiddleware = None
+
 # Load environment variables
 load_dotenv()
 
@@ -79,6 +89,51 @@ if ENABLE_CACHING:
 
 # Set cache_service to None - we'll use llm_cache_client directly
 cache_service = None
+
+# Initialize monitoring middleware
+monitoring_middleware = None
+MonitoringSessionLocal = None
+
+if LLMMonitoringMiddleware is not None:
+    try:
+        # Import dependencies for monitoring
+        import redis.asyncio as redis_async
+        from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+        from sqlalchemy.orm import sessionmaker
+        
+        # Get monitoring database URL
+        monitoring_db_url = os.getenv("MONITORING_DATABASE_URL", "postgresql+asyncpg://monitoring_user:monitoring_pass@localhost:5432/monitoring_org_001")
+        organization_id = os.getenv("ORGANIZATION_ID", "org_001")
+        redis_monitoring_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+        
+        # Create async engine for monitoring database
+        monitoring_engine = create_async_engine(monitoring_db_url, echo=False)
+        MonitoringSessionLocal = sessionmaker(
+            monitoring_engine, class_=AsyncSession, expire_on_commit=False
+        )
+        
+        # Create Redis client for monitoring
+        parsed_redis_url = urlparse(redis_monitoring_url)
+        redis_monitoring_client = redis_async.Redis(
+            host=parsed_redis_url.hostname or "localhost",
+            port=parsed_redis_url.port or 6379,
+            db=int(parsed_redis_url.path.lstrip('/')) if parsed_redis_url.path else 0,
+            decode_responses=False
+        )
+        
+        # Initialize monitoring middleware
+        monitoring_middleware = LLMMonitoringMiddleware(
+            redis_client=redis_monitoring_client,
+            db_session=None,  # Will be set per request
+            organization_id=organization_id
+        )
+        
+        logger.info("Monitoring middleware initialized successfully")
+        
+    except Exception as e:
+        logger.warning(f"Failed to initialize monitoring middleware: {e}")
+        monitoring_middleware = None
+        MonitoringSessionLocal = None
 
 # Pydantic models
 class QueryRequest(BaseModel):
@@ -221,14 +276,50 @@ async def firewall_scan(text: str) -> dict:
         logger.error(f"Firewall service error: {e}")
         raise HTTPException(status_code=500, detail=f"Firewall error: {str(e)}")
 
-async def generate_llm_response(query: str, session_id: str = "default") -> dict:
-    """Generate LLM response with dedicated LLM cache integration"""
+async def generate_llm_response(query: str, session_id: str = "default", user_id: str = "default_user") -> dict:
+    """Generate LLM response with dedicated LLM cache integration and monitoring"""
+    
+    # Start monitoring if available
+    request_context = None
+    if monitoring_middleware:
+        try:
+            # Create database session for monitoring
+            async with MonitoringSessionLocal() as db_session:
+                monitoring_middleware.db_session = db_session
+                request_context = await monitoring_middleware.track_request(
+                    user_id=user_id,
+                    agent_type="prompt_response",
+                    prompt=query,
+                    session_id=session_id
+                )
+        except Exception as e:
+            logger.warning(f"Failed to start monitoring: {e}")
     
     # Try dedicated LLM cache first
+    cache_hit = False
+    cache_similarity = None
     if ENABLE_CACHING:
         cache_result = await get_cached_response(query, session_id)
         if cache_result and cache_result.get("from_cache"):
+            cache_hit = True
+            cache_similarity = cache_result.get("similarity")
             logger.info(f"LLM Cache HIT for session {session_id} (similarity: {cache_result.get('similarity', 'exact')})")
+            
+            # Track response with monitoring
+            if monitoring_middleware and request_context:
+                try:
+                    async with MonitoringSessionLocal() as db_session:
+                        monitoring_middleware.db_session = db_session
+                        await monitoring_middleware.track_response(
+                            request_context=request_context,
+                            response=cache_result["response"],
+                            model="gpt-3.5-turbo",
+                            cache_hit=True,
+                            cache_similarity=cache_similarity
+                        )
+                except Exception as e:
+                    logger.warning(f"Failed to track cached response: {e}")
+            
             return {
                 "answer": cache_result["response"],
                 "session_id": session_id,
@@ -250,6 +341,21 @@ async def generate_llm_response(query: str, session_id: str = "default") -> dict
     
     answer = response.choices[0].message.content
     
+    # Track response with monitoring
+    if monitoring_middleware and request_context:
+        try:
+            async with MonitoringSessionLocal() as db_session:
+                monitoring_middleware.db_session = db_session
+                await monitoring_middleware.track_response(
+                    request_context=request_context,
+                    response=response,
+                    model="gpt-3.5-turbo",
+                    cache_hit=False,
+                    cache_similarity=None
+                )
+        except Exception as e:
+            logger.warning(f"Failed to track fresh response: {e}")
+    
     # Store in dedicated LLM cache (completely separate from monitoring)
     if ENABLE_CACHING:
         await store_cached_response(query, answer, session_id)
@@ -265,14 +371,16 @@ async def generate_llm_response(query: str, session_id: str = "default") -> dict
 @app.get("/respond")
 async def get_response(
     query: str = Query(..., description="User query to get LLM response for"),
-    session_id: str = Query("default", description="Session ID for caching")
+    session_id: str = Query("default", description="Session ID for caching"),
+    user_id: str = Query("default_user", description="User ID for monitoring")
 ):
     """
-    Get LLM response for a user query with caching support.
+    Get LLM response for a user query with caching support and monitoring.
     
     Args:
         query: The user's question or prompt
         session_id: Session ID for cache isolation
+        user_id: User ID for monitoring
         
     Returns:
         JSON response with the LLM's answer and cache metadata
@@ -280,10 +388,39 @@ async def get_response(
     if not query or not query.strip():
         raise HTTPException(status_code=400, detail="Query parameter cannot be empty")
     
-    # Firewall check
+    # Firewall check and monitoring
+    firewall_blocked = False
+    firewall_reasons = None
     if ENABLE_FIREWALL:
         scan = await firewall_scan(query.strip())
         if scan["pii"]["contains_pii"] or scan["secrets"]["contains_secrets"] or scan["toxicity"]["contains_toxicity"]:
+            firewall_blocked = True
+            firewall_reasons = scan
+            
+            # Track blocked request with monitoring
+            if monitoring_middleware:
+                try:
+                    async with MonitoringSessionLocal() as db_session:
+                        monitoring_middleware.db_session = db_session
+                        request_context = await monitoring_middleware.track_request(
+                            user_id=user_id,
+                            agent_type="prompt_response",
+                            prompt=query,
+                            session_id=session_id
+                        )
+                        await monitoring_middleware.track_response(
+                            request_context=request_context,
+                            response="Request blocked by firewall",
+                            model="gpt-3.5-turbo",
+                            error=None,
+                            cache_hit=False,
+                            cache_similarity=None,
+                            firewall_blocked=True,
+                            firewall_reasons=scan
+                        )
+                except Exception as e:
+                    logger.warning(f"Failed to track blocked request: {e}")
+            
             return JSONResponse(
                 status_code=403,
                 content={
@@ -294,7 +431,7 @@ async def get_response(
     
     try:
         result = await asyncio.wait_for(
-            generate_llm_response(query.strip(), session_id),
+            generate_llm_response(query.strip(), session_id, user_id),
             timeout=35.0  # Slightly longer timeout to account for cache calls
         )
         return result

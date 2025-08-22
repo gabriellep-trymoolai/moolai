@@ -97,7 +97,11 @@ class LLMMonitoringMiddleware:
         request_context: Dict[str, Any],
         response: Any,
         model: str = "gpt-3.5-turbo",
-        error: Optional[Exception] = None
+        error: Optional[Exception] = None,
+        cache_hit: bool = False,
+        cache_similarity: Optional[float] = None,
+        firewall_blocked: bool = False,
+        firewall_reasons: Optional[Dict] = None
     ) -> Dict[str, Any]:
         """
         Track the completion of an LLM request.
@@ -137,6 +141,10 @@ class LLMMonitoringMiddleware:
             "error_message": str(error) if error else None,
             "response_text": str(response)[:500] if response else None,
             "prompt_text": request_context["prompt"][:500],
+            "cache_hit": cache_hit,
+            "cache_similarity": cache_similarity,
+            "firewall_blocked": firewall_blocked,
+            "firewall_reasons": firewall_reasons,
         }
         
         # Store metrics
@@ -171,6 +179,11 @@ class LLMMonitoringMiddleware:
                 status=metrics["status"],
                 error_type=metrics.get("error_type"),
                 error_message=metrics.get("error_message"),
+                cache_hit=metrics.get("cache_hit", False),
+                cache_key=metrics.get("cache_key"),
+                cache_similarity=Decimal(str(metrics["cache_similarity"])) if metrics.get("cache_similarity") else None,
+                firewall_blocked=metrics.get("firewall_blocked", False),
+                firewall_reasons=metrics.get("firewall_reasons"),
                 department=metrics.get("department"),
                 session_id=safe_uuid(metrics.get("session_id")) if metrics.get("session_id") else None,
                 trace_id=safe_uuid(metrics["trace_id"]),
@@ -247,6 +260,12 @@ class LLMMonitoringMiddleware:
         pipe.hincrby(org_key, "total_queries", 1)
         pipe.hincrbyfloat(org_key, "total_cost", metrics["cost"])
         
+        # Track cache hits and firewall blocks
+        if metrics.get("cache_hit"):
+            pipe.hincrby(org_key, "cache_hits", 1)
+        if metrics.get("firewall_blocked"):
+            pipe.hincrby(org_key, "firewall_blocks", 1)
+        
         # Execute pipeline
         await pipe.execute()
         
@@ -260,10 +279,98 @@ class LLMMonitoringMiddleware:
                 "tokens": metrics["total_tokens"],
                 "latency_ms": metrics["latency_ms"],
                 "status": metrics["status"],
+                "cache_hit": metrics.get("cache_hit", False),
+                "cache_similarity": metrics.get("cache_similarity"),
+                "firewall_blocked": metrics.get("firewall_blocked", False),
+                "model_provider": metrics.get("model_provider"),
                 "timestamp": datetime.utcnow().isoformat()
             })
         )
+        
+        # Publish aggregated analytics update for dashboards
+        await self._publish_analytics_update(metrics)
     
+    async def _publish_analytics_update(self, metrics: Dict[str, Any]):
+        """Publish aggregated analytics data for real-time dashboards."""
+        if not self.redis_client:
+            return
+            
+        try:
+            # Get current organization metrics from Redis
+            org_metrics = await self.get_organization_metrics()
+            
+            # Calculate cache hit rate
+            total_requests = int(org_metrics.get('total_queries', 0))
+            cache_hits = int(org_metrics.get('cache_hits', 0))
+            cache_hit_rate = (cache_hits / total_requests * 100) if total_requests > 0 else 0
+            
+            # Build analytics payload
+            analytics_data = {
+                "type": "analytics_update",
+                "organization_id": metrics["organization_id"],
+                "overview": {
+                    "total_api_calls": total_requests,
+                    "total_cost": float(org_metrics.get('total_cost', 0)),
+                    "cache_hit_rate": round(cache_hit_rate, 1),
+                    "avg_response_time_ms": int(metrics.get("latency_ms", 0)),
+                    "firewall_blocks": int(org_metrics.get('firewall_blocks', 0))
+                },
+                "provider_breakdown": await self._get_provider_breakdown(),
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            
+            # Publish to analytics channel
+            await self.redis_client.publish(
+                f"analytics:{metrics['organization_id']}",
+                json.dumps(analytics_data)
+            )
+            
+        except Exception as e:
+            print(f"Error publishing analytics update: {e}")
+    
+    async def _get_provider_breakdown(self) -> list:
+        """Get provider breakdown from Redis cache."""
+        if not self.redis_client:
+            return []
+            
+        try:
+            # Get all provider keys for the organization
+            org_key = f"org:metrics:{self.organization_id}:realtime"
+            provider_pattern = f"{org_key}:models:*"
+            
+            provider_keys = await self.redis_client.keys(provider_pattern)
+            providers = {}
+            
+            for key in provider_keys:
+                # Extract provider from key
+                model_name = key.decode().split(':')[-1] if isinstance(key, bytes) else key.split(':')[-1]
+                provider = self._get_provider(model_name)
+                
+                # Get metrics for this model
+                model_metrics = await self.redis_client.hgetall(key)
+                if model_metrics:
+                    if provider not in providers:
+                        providers[provider] = {"calls": 0, "cost": 0.0, "tokens": 0}
+                    
+                    providers[provider]["calls"] += int(model_metrics.get(b'count' if isinstance(list(model_metrics.keys())[0], bytes) else 'count', 0))
+                    providers[provider]["cost"] += float(model_metrics.get(b'cost' if isinstance(list(model_metrics.keys())[0], bytes) else 'cost', 0))
+                    providers[provider]["tokens"] += int(model_metrics.get(b'tokens' if isinstance(list(model_metrics.keys())[0], bytes) else 'tokens', 0))
+            
+            # Convert to list format
+            return [
+                {
+                    "provider": provider,
+                    "calls": data["calls"],
+                    "cost": data["cost"],
+                    "tokens": data["tokens"]
+                }
+                for provider, data in providers.items()
+            ]
+            
+        except Exception as e:
+            print(f"Error getting provider breakdown: {e}")
+            return []
+
     def _get_provider(self, model: str) -> str:
         """Get provider name from model name."""
         if "gpt" in model.lower():

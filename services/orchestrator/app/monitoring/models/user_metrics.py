@@ -94,6 +94,11 @@ class UserLLMRealtime(MonitoringBase):
     # Caching
     cache_hit = Column(Boolean, default=False)
     cache_key = Column(String(255))
+    cache_similarity = Column(DECIMAL(5, 4))  # Similarity score for cache matches
+    
+    # Security/Firewall
+    firewall_blocked = Column(Boolean, default=False)
+    firewall_reasons = Column(JSONB)  # Detailed firewall scan results
     
     # Timestamps
     request_timestamp = Column(DateTime, nullable=False)

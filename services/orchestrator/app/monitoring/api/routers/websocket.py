@@ -32,7 +32,7 @@ from ..dependencies import get_monitoring_middleware, get_system_monitoring_midd
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/ws", tags=["websocket"])
+router = APIRouter(prefix="/ws/monitoring", tags=["monitoring-websocket"])
 
 # Global WebSocket manager instance
 ws_manager = WebSocketManager(
@@ -246,7 +246,14 @@ async def websocket_live_metrics(
 			
 			# Subscribe to metric channels
 			for metric_type in metric_types:
-				await ws_manager.subscribe(connection.connection_id, f"metrics:{org_id}:{metric_type}")
+				if metric_type == "analytics":
+					# Subscribe to analytics aggregated channel
+					await ws_manager.subscribe(connection.connection_id, f"analytics:{org_id}")
+					# Also subscribe to regular metrics for fallback
+					await ws_manager.subscribe(connection.connection_id, f"org:{org_id}:metrics")
+				else:
+					# Subscribe to regular metric channels
+					await ws_manager.subscribe(connection.connection_id, f"metrics:{org_id}:{metric_type}")
 		
 		# Handle messages
 		while True:
