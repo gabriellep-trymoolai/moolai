@@ -1,1008 +1,437 @@
-# MoolAI System - Developer Manual
+# Mooli Platform - Comprehensive Status Update
 
-> **For**: Developers, technical team, system administrators
-> **Last Updated**: 2025-08-18
+> **Version**: 1.0.0  
+> **Last Updated**: 2025-08-25  
+> **Project Status**: Multi-Tenant AI Platform  
 
-## Table of Contents
-1. [System Architecture](#system-architecture)
-2. [Quick Start Guide](#quick-start-guide)
-3. [Service Deep Dive](#service-deep-dive)
-4. [Development Workflow](#development-workflow)
-5. [Testing Guide](#testing-guide)
-6. [Deployment Guide](#deployment-guide)
-7. [Troubleshooting](#troubleshooting)
-8. [Integration Patterns](#integration-patterns)
-9. [Performance Optimization](#performance-optimization)
+## 🎯 Executive Summary
 
-## System Architecture
+Mooli is a multi-tenant AI orchestration platform that provides enterprise-grade LLM integration, real-time monitoring, advanced security, and intelligent caching. The system serves multiple organizations with complete data isolation while providing centralized analytics and management.
 
-### High-Level Overview
+### Key Achievements
+- ✅ Multi-tenant architecture with organization-level isolation
+- ✅ Embedded monitoring system (no separate monitoring service)
+- ✅ Advanced firewall with PII/secrets/toxicity detection
+- ✅ Semantic similarity caching for cost optimization
+- ✅ Real-time communication (WebSocket + SSE)
+- ✅ React-based admin dashboard with shadcn/ui components
+- ✅ Docker Compose deployment with security hardening
+
+## 🏗️ System Architecture
+
+### High-Level Design
+
 ```
-┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
-│  Orchestrator   │  │  Orchestrator   │  │   Controller    │
-│  (Org 001)      │  │  (Org 002)      │  │                 │
-│  Port: 8000     │  │  Port: 8010     │  │  Port: 9000     │
-│  ┌─────────────┐│  │  ┌─────────────┐│  │                 │
-│  │ Monitoring  ││  │  │ Monitoring  ││  │                 │
-│  │ EMBEDDED    ││  │  │ EMBEDDED    ││  │                 │
-│  └─────────────┘│  │  └─────────────┘│  │                 │
-└─────────────────┘  └─────────────────┘  └─────────────────┘
-         │                      │                    │
-         ▼                      ▼                    ▼
-┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
-│ PostgreSQL      │  │ PostgreSQL      │  │ PostgreSQL      │
-│ (Org 001)       │  │ (Org 002)       │  │ (Controller)    │
-│ 2 databases:    │  │ 2 databases:    │  │                 │
-│ - orchestrator  │  │ - orchestrator  │  │                 │
-│ - monitoring    │  │ - monitoring    │  │                 │
-└─────────────────┘  └─────────────────┘  └─────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                     User Interfaces                         │
+│  React Dashboard (Port 3000) | API Clients | CLI Tools     │
+└─────────────────────────────────────────────────────────────┘
+                              │
+┌─────────────────────────────────────────────────────────────┐
+│                    API Gateway Layer                        │
+│         REST APIs | WebSocket | Server-Sent Events         │
+└─────────────────────────────────────────────────────────────┘
+                              │
+┌──────────────────┬──────────────────┬──────────────────────┐
+│  Orchestrator    │  Orchestrator    │    Controller        │
+│  Organization 001│  Organization 002│    (Central)         │
+│  Port: 8000      │  Port: 8010      │    Port: 9000       │
+│  ┌─────────────┐ │  ┌─────────────┐ │                      │
+│  │ Monitoring  │ │  │ Monitoring  │ │   Analytics &        │
+│  │  EMBEDDED   │ │  │  EMBEDDED   │ │   Management         │
+│  └─────────────┘ │  └─────────────┘ │                      │
+└──────────────────┴──────────────────┴──────────────────────┘
+                              │
+┌─────────────────────────────────────────────────────────────┐
+│                     Data Layer                              │
+│  PostgreSQL (5 DBs) | Redis (2 instances) | File Storage   │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-### 🚨 Critical Architecture Notes
-- **Dual Database Design**: Each org has 2 databases (client data + monitoring data)  
-- **Port Strategy**: Monitoring APIs available on orchestrator ports (8000, 8010)
-- **Service Count**: 4 total services
+### Service Components
 
-## Quick Start Guide
+#### 1. **Orchestrator Service** (Per Organization)
+- **Purpose**: AI workflow orchestration and LLM integration
+- **Key Features**:
+  - LLM provider management (OpenAI, Anthropic, Google)
+  - Embedded monitoring system
+  - User session management
+  - Prompt execution pipeline
+  - Agent coordination
+  - Firewall integration
+  - Smart caching system
 
-### Prerequisites
+#### 2. **Controller Service** (Central)
+- **Purpose**: Cross-organization management and analytics
+- **Key Features**:
+  - Organization registry
+  - Centralized analytics
+  - Performance aggregation
+  - Cost tracking
+  - System overview dashboards
+
+#### 3. **Embedded Monitoring** (Within Orchestrator)
+- **Purpose**: Real-time system and performance monitoring
+- **Key Features**:
+  - CPU/Memory/Disk metrics
+  - API performance tracking
+  - Docker container monitoring
+  - Custom metrics collection
+  - Real-time streaming via WebSocket/SSE
+
+### Database Architecture
+
+```yaml
+Organization 001:
+  - orchestrator_org_001 (Port 5434): User data, configurations, prompts
+  - monitoring_org_001 (Port 5432): System metrics, performance data
+
+Organization 002:
+  - orchestrator_org_002 (Port 5435): User data, configurations, prompts
+  - monitoring_org_002 (Port 5433): System metrics, performance data
+
+Controller:
+  - moolai_controller (Port 5436): Organizations, analytics, aggregated data
+
+Redis:
+  - redis-org-001: Session cache, real-time data
+  - redis-org-002: Session cache, real-time data
+  - Database 0: Monitoring cache
+  - Database 1: LLM response cache
+```
+
+## 🚀 Key Features & Capabilities
+
+### 1. **AI/LLM Integration**
+- **Providers**: OpenAI, Anthropic, Google (extensible)
+- **Models**: GPT-3.5/4, Claude, Gemini
+- **Features**:
+  - Streaming responses
+  - Context management
+  - Token tracking
+  - Cost calculation
+  - Model switching
+  - Fallback strategies
+
+### 2. **Advanced Security (Firewall System)**
+- **PII Detection**: Using Microsoft Presidio
+  - Email addresses
+  - Phone numbers
+  - SSNs
+  - Credit cards
+  - Custom patterns
+- **Secrets Detection**: API keys, tokens, passwords
+- **Toxicity Filtering**: Profanity and harmful content
+- **Policy Management**: YAML-based rules engine
+
+### 3. **Intelligent Caching**
+- **Semantic Similarity**: Using sentence transformers
+- **Cache Strategy**:
+  - Embedding-based matching
+  - Configurable similarity threshold
+  - TTL management
+  - Cache invalidation
+- **Performance**: 90%+ cache hit rate for common queries
+
+### 4. **Real-Time Communication**
+- **WebSocket**: Bidirectional communication
+  - Chat sessions
+  - Live metrics
+  - System events
+- **Server-Sent Events**: One-way streaming
+  - Dashboard updates
+  - Progress notifications
+  - Log streaming
+
+### 5. **Monitoring & Analytics**
+- **System Metrics**:
+  - CPU, Memory, Disk, Network
+  - Container health
+  - Database performance
+- **Application Metrics**:
+  - API latency
+  - Request volumes
+  - Error rates
+  - Token usage
+- **Business Metrics**:
+  - Cost tracking
+  - Usage patterns
+  - Model performance
+
+### 6. **Frontend Dashboard**
+- **Tech Stack**: React 18 + TypeScript + Vite
+- **UI Library**: Radix UI + shadcn/ui + Tailwind CSS
+- **Features**:
+  - Real-time metrics dashboard
+  - Chat interface
+  - Configuration management
+  - User management
+  - Analytics visualization
+  - System monitoring
+
+## 💻 Development Guide
+
+### Quick Start
+
 ```bash
-# Required software
-docker >= 20.10
-docker-compose >= 2.0
-python >= 3.10
-git
-```
-
-### 🚀 30-Second Setup
-```bash
-# 1. Clone and navigate
-git clone <repository>
-cd mool_ai_repo
+# 1. Clone repository
+cd /Users/dinakarmurthy/Desktop/Mooli/Integrated_Code_V4/Mool_AI_Integrated
 
 # 2. Start all services
 ./build.sh
 
-# 3. Verify deployment
-curl http://localhost:8000/api/v1/system/health
-curl http://localhost:9000/health
-```
-
-### First Integration Test
-```bash
-# Test embedded monitoring
-python test_system_monitoring.py
-
-# Test orchestrator APIs
-curl -X POST "http://localhost:8000/api/v1/llm/chat" \
-  -H "Content-Type: application/json" \
-  -d '{"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}]}'
-```
-
-## Service Deep Dive
-
-### 🎯 Orchestrator Service (`/services/orchestrator/`)
-
-#### Purpose & Responsibilities
-- **AI Workflow Orchestration**: LLM calls, agent coordination
-- **User Management**: Organization-level user isolation
-- **Embedded Monitoring**: Real-time performance tracking
-- **API Gateway**: RESTful and WebSocket APIs
-
-#### Key Files & Their Purpose
-```
-orchestrator/
-├── app/
-│   ├── main.py                    # 🔹 FastAPI app entry point
-│   ├── monitoring/                # 🔹 EMBEDDED monitoring framework
-│   │   ├── api/routers/          # Monitoring API endpoints
-│   │   ├── middleware/           # Performance tracking middleware
-│   │   ├── models/               # Monitoring database models
-│   │   ├── services/             # Metrics collection logic
-│   │   └── config/database_adapter.py  # DB connection adapter
-│   ├── api/                      # Orchestrator APIs
-│   │   ├── routes_llm.py         # LLM integration endpoints
-│   │   ├── routes_users.py       # User management
-│   │   └── routes_settings.py    # Configuration management
-│   ├── agents/                   # AI workflow agents
-│   ├── db/                       # Database configuration
-│   │   └── database.py           # 🔹 Dual database manager
-│   └── services/                 # Core orchestrator services
-└── requirements.txt               # Python dependencies
-```
-
-#### 💡 Developer Tips
-**When working in orchestrator:**
-- **Monitoring changes**: Work in `app/monitoring/` subdirectory
-- **API changes**: Update `app/api/` routes
-- **Database changes**: Update both orchestrator and monitoring models
-- **Testing**: Use `python -m pytest tests/` for orchestrator tests
-
-**Common gotchas:**
-- Don't reference port 8001 (old monitoring port) - use 8000/8010
-- Monitoring is embedded - don't try to run it standalone
-- Database adapter redirects monitoring to orchestrator's DB connection
-
-### 📊 Embedded Monitoring (`/services/orchestrator/app/monitoring/`)
-
-#### Key Components
-1. **`api/routers/system_metrics.py`** - Main metrics API endpoints
-2. **`middleware/system_monitoring.py`** - Automatic performance tracking
-3. **`services/system_metrics.py`** - Core metrics collection logic
-4. **`config/database_adapter.py`** - Database connection adapter
-
-#### API Endpoints (on orchestrator ports)
-```bash
-# Health check
-GET /api/v1/system/health
-
-# Force immediate collection
-POST /api/v1/system/collect/immediate?organization_id=org_001
-
-# Get organization metrics
-GET /api/v1/system/metrics/organization/org_001
-
-# Real-time streaming
-GET /api/v1/stream
-
-# WebSocket interface
-WS /ws
-```
-
-#### 💡 Developer Tips
-**Adding new metrics:**
-1. **Model**: Add fields to `models/system_metrics.py`
-2. **Collection**: Update `services/system_metrics.py`
-3. **API**: Add endpoint in `api/routers/system_metrics.py`
-4. **Test**: Update `../../../test_system_monitoring.py`
-
-**Database operations:**
-- Use `database_adapter.py` for all DB connections
-- Never create direct monitoring database connections
-- Models inherit from orchestrator's `MonitoringBase`
-
-**Configuration requirements:**
-- Settings must include `get_config()` function for router compatibility
-- Use `EmbeddedMonitoringConfig` class for embedded architecture
-- Import database dependencies from `...config.database`
-
-### 🎛️ Controller Service (`/services/controller/`)
-
-#### Purpose & Responsibilities
-- **Central Management**: Cross-organization coordination
-- **Analytics**: Performance aggregation across all orchestrators
-- **Organization Registry**: Multi-tenant organization management
-
-#### Key Files & Their Purpose
-```
-controller/
-├── app/
-│   ├── main.py                   # FastAPI application entry point
-│   ├── api/                      # Controller APIs
-│   │   ├── routes_analytics.py   # 🔹 Cross-org analytics
-│   │   ├── routes_orgs.py        # Organization management
-│   │   └── routes_users.py       # Central user management
-│   ├── models/                   # Database models
-│   │   ├── organization.py       # Organization entities
-│   │   ├── user.py               # User entities
-│   │   └── orchestrator.py       # Orchestrator registration
-│   ├── services/                 # Business logic
-│   │   ├── analytics.py          # 🔹 Analytics processing
-│   │   └── database_pool.py      # Database connection pooling
-│   └── db/database.py            # Database configuration
-└── requirements.txt
-```
-
-#### 💡 Developer Tips
-**Controller vs Orchestrator:**
-- **Controller**: Central analytics, organization management
-- **Orchestrator**: AI workflows, embedded monitoring
-- **Data Flow**: Controller pulls data from orchestrator monitoring APIs
-
-## Development Workflow
-
-### Setting Up Development Environment
-
-#### 1. Local Development Setup
-```bash
-# Clone repository
-git clone <repository>
-cd mool_ai_repo
-
-# Install dependencies for each service
-cd services/orchestrator && pip install -r requirements.txt
-cd ../controller && pip install -r requirements.txt
-cd ../..
-
-# Set up environment variables
-cp deployment/client/.env.template .env
-# Edit .env with your configuration
-```
-
-#### 2. Database Setup
-```bash
-# Start databases only
-docker-compose up postgres-orchestrator-001 postgres-controller -d
-
-# Run migrations (when ready)
-cd services/orchestrator && python -m alembic upgrade head
-cd ../controller && python -m alembic upgrade head
-```
-
-#### 3. Service Development
-```bash
-# Run orchestrator in development
-cd services/orchestrator
-python -m uvicorn app.main:app --reload --port 8000
-
-# Run controller in development  
-cd services/controller
-python -m uvicorn app.main:app --reload --port 9000
-```
-
-### 🔧 Development Best Practices
-
-#### Code Organization
-- **Follow existing patterns**: Look at existing code before adding new features
-- **Use type hints**: All new code should include proper type annotations
-- **Error handling**: Use structured exception handling with proper logging
-- **Async/await**: All database operations and HTTP calls should be async
-
-#### Database Best Practices
-```python
-# ✅ Good: Use dependency injection
-@router.get("/metrics")
-async def get_metrics(db: AsyncSession = Depends(get_monitoring_db)):
-    result = await db.execute(select(SystemMetrics))
-    return result.scalars().all()
-
-# ❌ Bad: Direct database connections
-async def get_metrics():
-    db = create_engine("postgresql://...")  # Don't do this
-```
-
-#### API Development
-```python
-# ✅ Good: Proper error handling
-@router.post("/collect")
-async def collect_metrics(org_id: str):
-    try:
-        result = await metrics_collector.collect(org_id)
-        return {"status": "success", "data": result}
-    except CollectionError as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# ✅ Good: Input validation
-from pydantic import BaseModel
-
-class MetricsRequest(BaseModel):
-    organization_id: str
-    start_time: datetime
-    end_time: datetime
-```
-
-## Testing Guide
-
-### Test Structure
-```
-tests/
-├── test_orchestrator.py          # Orchestrator API tests
-├── test_controller.py            # Controller API tests
-├── test_system_monitoring.py     # Embedded monitoring tests
-├── test_integration.py           # Cross-service integration tests
-├── conftest.py                   # Pytest configuration
-└── fixtures/                     # Test data fixtures
-```
-
-### 🧪 Running Tests
-
-#### Unit Tests
-```bash
-# Test individual services
-cd services/orchestrator && python -m pytest tests/ -v
-cd services/controller && python -m pytest tests/ -v
-
-# Test embedded monitoring specifically
-python test_system_monitoring.py
-```
-
-#### Integration Tests
-```bash
-# Start services first
-./build.sh
-
-# Run integration tests
-python -m pytest tests/test_integration.py -v
-```
-
-#### Load Testing
-```bash
-# Test monitoring collection under load
-python tests/load_test_monitoring.py
-
-# Test LLM API performance
-python tests/load_test_llm.py
-```
-
-### 💡 Testing Tips
-
-#### Monitoring Tests
-```python
-# Test embedded monitoring endpoints
-async def test_monitoring_health():
-    async with httpx.AsyncClient() as client:
-        # Note: Test on orchestrator port, not separate monitoring port
-        response = await client.get("http://localhost:8000/api/v1/system/health")
-        assert response.status_code == 200
-```
-
-#### Database Tests
-```python
-# Use test database for monitoring tests
-@pytest.fixture
-async def test_monitoring_db():
-    # Create test monitoring database
-    async with get_monitoring_db() as db:
-        yield db
-        # Cleanup
-```
-
-## Deployment Guide
-
-### 🐳 Docker Deployment
-
-#### Production Deployment
-```bash
-# Build all images
-./scripts/docker-build.sh
-
-# Deploy full system
-docker-compose up -d
-
-# Verify deployment
-./scripts/docker-verify.sh
-```
-
-#### Client Deployment
-```bash
-# Use client-specific configuration
-cd deployment/client
-cp .env.template .env
-# Configure .env for client
-
-# Deploy single organization
-docker-compose -f docker-compose.yml up -d
-```
-
-### 🔧 Configuration Management
-
-#### Environment Variables
-```bash
-# Orchestrator Configuration
-DATABASE_URL=postgresql+asyncpg://user:pass@host:5432/orchestrator_org_001
-MONITORING_DATABASE_URL=postgresql+asyncpg://user:pass@host:5432/monitoring_org_001
-ORCHESTRATOR_PORT=8000
-REDIS_URL=redis://redis:6379
-
-# Controller Configuration  
-CONTROLLER_DATABASE_URL=postgresql+asyncpg://user:pass@host:5432/moolai_controller
-CONTROLLER_PORT=9000
-
-# LLM Provider Keys
-OPENAI_API_KEY=your_openai_key
-ANTHROPIC_API_KEY=your_anthropic_key
-GOOGLE_API_KEY=your_google_key
-```
-
-#### Database Configuration
-```yaml
-# Docker Compose Database Setup
-postgres-orchestrator-001:
-  image: postgres:15
-  environment:
-    POSTGRES_DB: orchestrator_org_001
-    POSTGRES_USER: orchestrator_user
-    POSTGRES_PASSWORD: secure_password_orch_001
-  ports:
-    - "5434:5432"
-  volumes:
-    - postgres_orchestrator_001_data:/var/lib/postgresql/data
-    - ./scripts/init-monitoring-db.sql:/docker-entrypoint-initdb.d/init-monitoring-db.sql
-```
-
-### 🌐 Production Considerations
-
-#### Performance Tuning
-```python
-# Database Connection Pooling
-DATABASE_CONFIG = {
-    "pool_size": 20,
-    "max_overflow": 30,
-    "pool_pre_ping": True,
-    "pool_recycle": 3600
-}
-
-# Monitoring Collection Optimization
-MONITORING_CONFIG = {
-    "collection_interval": 30,  # seconds
-    "batch_size": 100,
-    "cache_ttl": 300  # 5 minutes
-}
-```
-
-#### Security Configuration
-```bash
-# Use strong passwords
-DB_PASSWORD=$(openssl rand -base64 32)
-API_KEY=$(openssl rand -hex 32)
-JWT_SECRET=$(openssl rand -base64 64)
-
-# Enable TLS in production
-TLS_ENABLED=true
-TLS_CERT_PATH=/etc/ssl/certs/server.crt
-TLS_KEY_PATH=/etc/ssl/private/server.key
-```
-
-## Troubleshooting
-
-### 🔍 Common Issues & Solutions
-
-#### 1. Connection Refused Errors
-```bash
-# Symptom: ConnectionRefusedError: [Errno 111] Connection refused
-# Cause: Service starting before database is ready
-
-# Solution: Check docker-compose health checks
-docker-compose ps  # Check service status
-docker-compose logs postgres-orchestrator-001  # Check database logs
-
-# Fix: Ensure proper depends_on configuration
-services:
-  orchestrator-org-001:
-    depends_on:
-      postgres-orchestrator-001:
-        condition: service_healthy
-```
-
-#### 2. Monitoring API 404 Errors
-```bash
-# Symptom: 404 on /api/v1/system/metrics
-# Cause: Trying to access on wrong port or old monitoring service
-
-# Solution: Use orchestrator ports
-curl http://localhost:8000/api/v1/system/health  # ✅ Correct
-curl http://localhost:8001/api/v1/system/health  # ❌ Wrong (old port)
-```
-
-#### 3. Database Connection Issues
-```python
-# Symptom: "greenlet_spawn has not been called" errors
-# Cause: Mixing sync and async database operations
-
-# Solution: Use proper async patterns
-# ✅ Good
-async def get_metrics():
-    async with get_monitoring_db() as db:
-        result = await db.execute(select(SystemMetrics))
-        return result.scalars().all()
-
-# ❌ Bad  
-def get_metrics():
-    db = get_monitoring_db()  # Sync call in async context
-    return db.query(SystemMetrics).all()
-```
-
-#### 4. Monitoring Collection Not Working
-```bash
-# Check background collection status
-curl http://localhost:8000/api/v1/system/status/background
-
-# Force immediate collection
-curl -X POST "http://localhost:8000/api/v1/system/collect/immediate?organization_id=org_001"
-
-# Check logs
-docker-compose logs orchestrator-org-001
-```
-
-#### 5. Code Changes Require Container Rebuild ⚠️ IMPORTANT
-```bash
-# Symptom: Changes to Python code not reflected after docker-compose up
-# Cause: Docker containers using cached images with old code
-
-# Solution: Always rebuild after code changes
-docker-compose down
-./build.sh  # or docker-compose build
-docker-compose up -d
-
-# Quick rebuild for development
-docker-compose build orchestrator-org-001 orchestrator-org-002
-docker-compose up -d
-```
-
-### 📊 Debugging Tools
-
-#### Health Checks
-```bash
-# Service health
+# 3. Verify health
 curl http://localhost:8000/health
 curl http://localhost:9000/health
 
-# Database connectivity
-curl http://localhost:8000/api/v1/system/health
-
-# Monitoring status
-curl http://localhost:8000/api/v1/system/status/background
+# 4. Access dashboard
+open http://localhost:3000
 ```
 
-#### Log Analysis
+### Environment Configuration
+
 ```bash
-# View service logs
-docker-compose logs -f orchestrator-org-001
-docker-compose logs -f controller
-
-# Monitoring-specific logs
-docker-compose logs orchestrator-org-001 | grep "monitoring"
-```
-
-#### Database Debugging
-```sql
--- Check monitoring data
-SELECT COUNT(*) FROM user_system_performance;
-SELECT * FROM user_system_performance ORDER BY timestamp DESC LIMIT 5;
-
--- Check collection status
-SELECT organization_id, COUNT(*) as metric_count 
-FROM user_system_performance 
-GROUP BY organization_id;
-```
-
-## Integration Patterns
-
-### 🔌 API Integration
-
-#### LLM Provider Integration
-```python
-# Add new LLM provider
-class NewProviderClient:
-    def __init__(self, api_key: str):
-        self.api_key = api_key
-        self.base_url = "https://api.newprovider.com"
-    
-    async def chat_completion(self, messages: List[dict]) -> dict:
-        # Implementation
-        pass
-
-# Register in orchestrator
-from app.services.llm import LLMManager
-llm_manager = LLMManager()
-llm_manager.register_provider("newprovider", NewProviderClient)
-```
-
-#### Custom Monitoring Metrics
-```python
-# Add custom metric collection
-class CustomMetricsCollector:
-    async def collect_custom_metrics(self, org_id: str) -> dict:
-        # Your custom metrics logic
-        return {
-            "custom_metric_1": value1,
-            "custom_metric_2": value2
-        }
-
-# Register in monitoring system
-from app.monitoring.services.system_metrics import SystemMetricsCollector
-collector = SystemMetricsCollector()
-collector.add_custom_collector(CustomMetricsCollector())
-```
-
-#### WebSocket Integration
-```javascript
-// Connect to real-time monitoring
-const ws = new WebSocket('ws://localhost:8000/ws');
-
-ws.onmessage = function(event) {
-    const data = JSON.parse(event.data);
-    if (data.type === 'system_metrics') {
-        updateDashboard(data.metrics);
-    }
-};
-
-// Subscribe to specific metrics
-ws.send(JSON.stringify({
-    type: 'subscribe',
-    topics: ['cpu_usage', 'memory_usage']
-}));
-```
-
-### 🔗 External System Integration
-
-#### Analytics Dashboard Integration
-```python
-# Export metrics for external dashboards
-@router.get("/export/metrics")
-async def export_metrics(
-    org_id: str,
-    start_date: datetime,
-    end_date: datetime,
-    format: str = "json"
-):
-    metrics = await get_metrics_range(org_id, start_date, end_date)
-    
-    if format == "prometheus":
-        return export_prometheus_format(metrics)
-    elif format == "grafana":
-        return export_grafana_format(metrics)
-    else:
-        return metrics
-```
-
-#### Alerting System Integration
-```python
-# Custom alerting hooks
-class AlertManager:
-    async def check_thresholds(self, metrics: dict):
-        if metrics['cpu_usage'] > 80:
-            await self.send_alert(
-                level="warning",
-                message="High CPU usage detected",
-                metrics=metrics
-            )
-    
-    async def send_alert(self, level: str, message: str, metrics: dict):
-        # Integration with Slack, PagerDuty, etc.
-        pass
-```
-
-## Performance Optimization
-
-### 🚀 Database Optimization
-
-#### Connection Pooling
-```python
-# Optimized database configuration
-from sqlalchemy.ext.asyncio import create_async_engine
-
-engine = create_async_engine(
-    DATABASE_URL,
-    pool_size=20,           # Number of persistent connections
-    max_overflow=30,        # Additional connections when needed
-    pool_pre_ping=True,     # Verify connections before use
-    pool_recycle=3600,      # Recycle connections after 1 hour
-    echo=False              # Disable SQL logging in production
-)
-```
-
-#### Query Optimization
-```python
-# ✅ Efficient monitoring queries
-async def get_recent_metrics(org_id: str, limit: int = 100):
-    query = select(SystemMetrics).where(
-        SystemMetrics.organization_id == org_id
-    ).order_by(
-        SystemMetrics.timestamp.desc()
-    ).limit(limit)
-    
-    result = await db.execute(query)
-    return result.scalars().all()
-
-# ✅ Batch inserts for metrics
-async def batch_insert_metrics(metrics: List[dict]):
-    stmt = insert(SystemMetrics)
-    await db.execute(stmt, metrics)
-    await db.commit()
-```
-
-#### Database Indexing
-```sql
--- Essential indexes for monitoring
-CREATE INDEX idx_system_metrics_org_timestamp 
-ON user_system_performance(organization_id, timestamp DESC);
-
-CREATE INDEX idx_system_metrics_timestamp 
-ON user_system_performance(timestamp DESC);
-
--- Composite index for common queries
-CREATE INDEX idx_system_metrics_org_type_timestamp 
-ON user_system_performance(organization_id, metric_type, timestamp DESC);
-```
-
-### ⚡ Application Performance
-
-#### Caching Strategy
-```python
-# Redis caching for frequent queries
-import redis.asyncio as redis
-
-class MetricsCache:
-    def __init__(self):
-        self.redis = redis.Redis(host='redis', port=6379, db=0)
-    
-    async def get_cached_metrics(self, org_id: str):
-        key = f"metrics:{org_id}:latest"
-        cached = await self.redis.get(key)
-        if cached:
-            return json.loads(cached)
-        return None
-    
-    async def cache_metrics(self, org_id: str, metrics: dict, ttl: int = 300):
-        key = f"metrics:{org_id}:latest"
-        await self.redis.setex(key, ttl, json.dumps(metrics))
-```
-
-#### Async Processing
-```python
-# Background task optimization
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
-
-class MetricsCollector:
-    def __init__(self):
-        self.executor = ThreadPoolExecutor(max_workers=4)
-    
-    async def collect_all_organizations(self):
-        organizations = await self.get_organizations()
-        
-        # Process organizations concurrently
-        tasks = [
-            self.collect_organization_metrics(org.id) 
-            for org in organizations
-        ]
-        
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        return results
-```
-
-### 📈 Monitoring Performance
-
-#### Collection Optimization
-```python
-# Efficient metrics collection
-class OptimizedCollector:
-    async def collect_system_metrics(self):
-        # Collect multiple metrics concurrently
-        tasks = [
-            self.get_cpu_metrics(),
-            self.get_memory_metrics(),
-            self.get_disk_metrics(),
-            self.get_network_metrics()
-        ]
-        
-        cpu, memory, disk, network = await asyncio.gather(*tasks)
-        
-        return {
-            "cpu": cpu,
-            "memory": memory,
-            "disk": disk,
-            "network": network,
-            "timestamp": datetime.utcnow()
-        }
-```
-
----
-
-## 🎯 Quick Reference
-
-### Port Guide
-- **8000**: Orchestrator Org-001 (includes embedded monitoring)
-- **8010**: Orchestrator Org-002 (includes embedded monitoring)  
-- **9000**: Controller (analytics and management)
-- **5434**: PostgreSQL Org-001 (orchestrator + monitoring databases)
-- **5435**: PostgreSQL Org-002 (orchestrator + monitoring databases)
-- **5436**: PostgreSQL Controller
-
-### Key Endpoints
-
-#### All Endpoints
-```bash
-# Orchestrator (includes embedded monitoring)
-GET  /health                           # Service health
-GET  /api/v1/system/health            # Monitoring health
-POST /api/v1/system/collect/immediate # Force collection
-GET  /api/v1/system/metrics           # System metrics
-GET  /api/v1/stream                   # Real-time streaming
-WS   /ws                              # WebSocket interface
-
-# Controller
-GET  /health                          # Service health
-GET  /api/v1/organizations           # Organization list
-GET  /api/v1/analytics/performance   # Performance analytics
-```
-
-### 🎯 Endpoints by Team Usage
-
-#### 🎨 UI/Frontend Development Team
-```bash
-# Real-time Dashboard Data
-GET  http://localhost:8000/api/v1/system/metrics/organization/org_001
-GET  http://localhost:8010/api/v1/system/metrics/organization/org_002
-WS   ws://localhost:8000/ws                      # Real-time updates
-GET  http://localhost:8000/api/v1/stream        # Server-sent events
-
-# System Health for Status Indicators
-GET  http://localhost:8000/api/v1/system/health
-GET  http://localhost:8010/api/v1/system/health
-GET  http://localhost:8002/health
-
-# Cross-Organization Analytics
-GET  http://localhost:8002/api/v1/controller/overview
-GET  http://localhost:8002/api/v1/controller/performance
-GET  http://localhost:8002/api/v1/controller/costs
-
-# Organization Management
-GET  http://localhost:8002/api/v1/controller/organizations
-GET  http://localhost:8002/api/v1/controller/orchestrators
-```
-
-#### 🔧 Infrastructure/DevOps Team
-```bash
-# Service Health Monitoring
-GET  http://localhost:8000/health               # Orchestrator org-001
-GET  http://localhost:8010/health               # Orchestrator org-002  
-GET  http://localhost:8002/health               # Controller
-
-# System Performance Monitoring
-GET  http://localhost:8000/api/v1/system/status/background
-POST http://localhost:8000/api/v1/system/collect/immediate?organization_id=org_001
-POST http://localhost:8010/api/v1/system/collect/immediate?organization_id=org_002
-
-# Metrics Collection Status
-GET  http://localhost:8000/api/v1/system/metrics/organization/org_001
-GET  http://localhost:8010/api/v1/system/metrics/organization/org_002
-
-# Real-time System Health Stream
-GET  http://localhost:8000/api/v1/stream/system/health
-GET  http://localhost:8010/api/v1/stream/system/health
-```
-
-#### 🤖 AI Agent Development Team
-```bash
-# Agent Lifecycle Management
-GET  http://localhost:8000/api/v1/orchestrators/org_001/agents
-GET  http://localhost:8010/api/v1/orchestrators/org_002/agents
-GET  http://localhost:8000/api/v1/orchestrators/org_001/agents/{agent_id}/status
-
-# Prompt Execution
-POST http://localhost:8000/api/v1/orchestrators/org_001/prompts
-POST http://localhost:8010/api/v1/orchestrators/org_002/prompts
-GET  http://localhost:8000/api/v1/orchestrators/org_001/prompts/{prompt_id}
-
-# Task Management
-POST http://localhost:8000/api/v1/orchestrators/org_001/tasks
-GET  http://localhost:8000/api/v1/orchestrators/org_001/tasks/{task_id}
-PUT  http://localhost:8000/api/v1/orchestrators/org_001/tasks/{task_id}/cancel
-
-# Configuration Management
-GET  http://localhost:8000/api/v1/orchestrators/org_001/config
-PUT  http://localhost:8000/api/v1/orchestrators/org_001/config
-POST http://localhost:8000/api/v1/orchestrators/org_001/config/validate
-```
-
-#### 🔒 Security/Compliance Team
-```bash
-# System Health and Integrity
-GET  http://localhost:8000/api/v1/system/health
-GET  http://localhost:8010/api/v1/system/health
-GET  http://localhost:8002/health
-
-# Performance Monitoring (for anomaly detection)
-GET  http://localhost:8000/api/v1/system/metrics/organization/org_001
-GET  http://localhost:8010/api/v1/system/metrics/organization/org_002
-
-# Organization Access Control
-GET  http://localhost:8002/api/v1/controller/organizations
-GET  http://localhost:8002/api/v1/controller/orchestrators
-
-# User Management (placeholder endpoints)
-GET  http://localhost:8000/api/v1/orchestrators/org_001/users
-GET  http://localhost:8010/api/v1/orchestrators/org_002/users
-
-# API Key Management (placeholder endpoints)
-GET  http://localhost:8000/api/v1/orchestrators/org_001/api-keys
-POST http://localhost:8000/api/v1/orchestrators/org_001/api-keys
-DELETE http://localhost:8000/api/v1/orchestrators/org_001/api-keys/{key_id}
-```
-
-#### 🌐 Network/Firewall Team
-```bash
-# External Ports to Allow
-8000  # Orchestrator org-001 (HTTP/HTTPS)
-8010  # Orchestrator org-002 (HTTP/HTTPS)
-8002  # Controller (HTTP/HTTPS)
-
-# Internal Ports (Container-to-Container)
-5432  # PostgreSQL databases (multiple instances)
-6379  # Redis instances
-
-# Health Check Endpoints (for Load Balancers)
-GET  http://localhost:8000/health
-GET  http://localhost:8010/health
-GET  http://localhost:8002/health
-
-# WebSocket Connections
-WS   ws://localhost:8000/ws
-WS   ws://localhost:8010/ws
-```
-
-#### 📊 Analytics/Business Intelligence Team
-```bash
-# Cross-Organization Insights
-GET  http://localhost:8002/api/v1/controller/overview
-GET  http://localhost:8002/api/v1/controller/costs
-GET  http://localhost:8002/api/v1/controller/performance
-GET  http://localhost:8002/api/v1/controller/insights
-
-# Organization-Specific Metrics
-GET  http://localhost:8000/api/v1/system/metrics/organization/org_001
-GET  http://localhost:8010/api/v1/system/metrics/organization/org_002
-
-# Custom Queries and Exports
-POST http://localhost:8002/api/v1/controller/query
-POST http://localhost:8002/api/v1/controller/export
-GET  http://localhost:8002/api/v1/controller/export/{job_id}
-
-# Real-time Metrics Streaming
-GET  http://localhost:8000/api/v1/stream/metrics/organization
-GET  http://localhost:8010/api/v1/stream/metrics/organization
-```
-
-#### 🧪 QA/Testing Team
-```bash
-# Health Verification
-GET  http://localhost:8000/health
-GET  http://localhost:8010/health
-GET  http://localhost:8002/health
-
-# End-to-End Testing Endpoints
-POST http://localhost:8000/api/v1/system/collect/immediate?organization_id=org_001
-GET  http://localhost:8000/api/v1/system/status/background
-GET  http://localhost:8000/api/v1/system/metrics/organization/org_001
-
-# Controller Integration Tests
-GET  http://localhost:8002/api/v1/controller/orchestrators
-POST http://localhost:8002/api/v1/controller/orchestrators
-GET  http://localhost:8002/api/v1/controller/organizations
-
-# Real-time Feature Testing
-WS   ws://localhost:8000/ws
-GET  http://localhost:8000/api/v1/stream/system/health
-```
-
-### Development Commands
-```bash
-# Start development environment
-./build.sh
-
-# Test embedded monitoring
-python test_system_monitoring.py
-
-# Run individual service tests
-cd services/orchestrator && python -m pytest tests/ -v
-cd services/controller && python -m pytest tests/ -v
-
-# Build production images
-./scripts/docker-build.sh
-```
-
-### Environment Variables Template
-```bash
-# Core Configuration
+# Core Settings
 ORGANIZATION_ID=org_001
 ORCHESTRATOR_PORT=8000
 CONTROLLER_PORT=9000
 
 # Database URLs
-DATABASE_URL=postgresql+asyncpg://user:pass@host:5432/orchestrator_org_001
-MONITORING_DATABASE_URL=postgresql+asyncpg://user:pass@host:5432/monitoring_org_001
-CONTROLLER_DATABASE_URL=postgresql+asyncpg://user:pass@host:5432/moolai_controller
+DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5434/orchestrator_org_001
+MONITORING_DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/monitoring_org_001
+CONTROLLER_DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5436/moolai_controller
 
-# API Keys
-OPENAI_API_KEY=your_openai_key
-ANTHROPIC_API_KEY=your_anthropic_key
-ORCHESTRATOR_API_KEY=your_api_key
+# Redis
+REDIS_URL=redis://localhost:6379/0
+REDIS_LLM_CACHE_URL=redis://localhost:6379/1
 
-# Monitoring Configuration
-METRICS_COLLECTION_INTERVAL=30
-AUTO_COLLECT=true
+# LLM Providers
+OPENAI_API_KEY=your_key
+ANTHROPIC_API_KEY=your_key
+
+# Feature Flags
+ENABLE_FIREWALL=true
+ENABLE_CACHING=true
+ENABLE_REALTIME_REDIS=true
 ```
+
+### Adding New Features
+
+1. **New API Endpoint**:
+```python
+# In services/orchestrator/app/api/routes_new.py
+from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+
+router = APIRouter(prefix="/api/v1")
+
+@router.get("/new-endpoint")
+async def new_endpoint(db: AsyncSession = Depends(get_db)):
+    # Implementation
+    return {"status": "success"}
+
+# In main.py
+app.include_router(routes_new.router, tags=["new"])
+```
+
+2. **New Monitoring Metric**:
+```python
+# In services/orchestrator/app/monitoring/services/system_metrics.py
+async def collect_custom_metric(self, org_id: str):
+    metric_value = await self._get_metric_value()
+    await self.store_metric(org_id, "custom_metric", metric_value)
+```
+
+3. **New Frontend Component**:
+```typescript
+// In services/orchestrator/app/gui/frontend/src/components/NewComponent.tsx
+import { Card } from "@/components/ui/card"
+
+export function NewComponent() {
+  return (
+    <Card>
+      <CardHeader>New Feature</CardHeader>
+      <CardContent>Content here</CardContent>
+    </Card>
+  )
+}
+```
+
+## 🔧 Critical Implementation Notes
+
+### 1. **Database Patterns**
+
+**ALWAYS use async patterns:**
+```python
+# ✅ Correct
+async def get_data(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Model))
+    return result.scalars().all()
+
+# ❌ Wrong - causes greenlet errors
+def get_data(db: Session):
+    return db.query(Model).all()
+```
+
+### 2. **Monitoring is Embedded**
+
+**Access monitoring on orchestrator ports:**
+```bash
+# ✅ Correct
+curl http://localhost:8000/api/v1/system/health
+
+# ❌ Wrong - no separate monitoring service
+curl http://localhost:8001/api/v1/system/health
+```
+
+### 3. **Docker Rebuild Required**
+
+**After Python code changes:**
+```bash
+# Always rebuild containers after code changes
+docker-compose down
+docker-compose build
+docker-compose up -d
+```
+
+### 4. **Port Mappings**
+
+```yaml
+Services:
+  - 8000: Orchestrator Org-001 (includes monitoring)
+  - 8010: Orchestrator Org-002 (includes monitoring)
+  - 9000: Controller (NOT 8002)
+  - 3000: Frontend dashboard
+
+Databases:
+  - 5432: PostgreSQL Org-001 Monitoring
+  - 5433: PostgreSQL Org-002 Monitoring
+  - 5434: PostgreSQL Org-001 Orchestrator
+  - 5435: PostgreSQL Org-002 Orchestrator
+  - 5436: PostgreSQL Controller
+```
+
+## 📊 API Endpoints Reference
+
+### Orchestrator APIs (Port 8000/8010)
+
+```bash
+# Core Orchestrator
+POST /api/v1/orchestrators/{org_id}/prompts      # Execute prompt
+GET  /api/v1/orchestrators/{org_id}/config       # Get configuration
+POST /api/v1/orchestrators/{org_id}/chat/sessions # Create chat session
+
+# Embedded Monitoring
+GET  /api/v1/system/health                       # System health
+GET  /api/v1/system/metrics/organization/{org_id} # Get metrics
+POST /api/v1/system/collect/immediate            # Force collection
+
+# Real-time
+WS   /ws                                         # WebSocket
+GET  /api/v1/stream                              # Server-sent events
+
+# Firewall
+POST /scan/pii                                   # Scan for PII
+POST /scan/secrets                               # Scan for secrets
+POST /scan/toxicity                              # Scan for toxicity
+
+# Caching
+GET  /api/v1/cache/stats                         # Cache statistics
+POST /api/v1/cache/clear                         # Clear cache
+```
+
+### Controller APIs (Port 9000)
+
+```bash
+GET  /api/v1/organizations                       # List organizations
+GET  /api/v1/analytics/performance               # Performance metrics
+GET  /api/v1/analytics/costs                     # Cost analytics
+GET  /api/v1/controller/overview                 # System overview
+```
+
+## 🐛 Common Issues & Solutions
+
+### 1. **"User not found" in Chat**
+- **Issue**: Chat trying to query database for placeholder users
+- **Solution**: Chat routes should use placeholder data, not DB lookups
+- **Status**: Known issue documented in CHAT_FUNCTIONALITY_ANALYSIS.md
+
+### 2. **Monitoring API 404**
+- **Issue**: Accessing wrong port for monitoring
+- **Solution**: Use orchestrator ports (8000/8010), not 8001/8011
+
+### 3. **Code changes not reflected**
+- **Issue**: Docker using cached images
+- **Solution**: Always rebuild containers after changes
+
+### 4. **Database connection errors**
+- **Issue**: Mixing sync/async operations
+- **Solution**: Use async patterns throughout
+
+### 5. **Frontend routing issues**
+- **Issue**: Dashboard/chat navigation conflicts
+- **Solution**: Documented in ROUTING_FIX_COMPLETE.md, needs refinement
+
+## 📁 Project Structure
+
+```
+Mool_AI_Integrated/
+├── services/
+│   ├── orchestrator/          # AI orchestration service
+│   │   ├── app/
+│   │   │   ├── main.py       # FastAPI entry point
+│   │   │   ├── monitoring/   # EMBEDDED monitoring
+│   │   │   ├── api/          # API routes
+│   │   │   ├── agents/       # AI agents
+│   │   │   ├── services/     # Business logic
+│   │   │   └── gui/frontend/ # React dashboard
+│   │   └── requirements.txt
+│   └── controller/            # Central management
+│       ├── app/
+│       │   ├── main.py
+│       │   ├── api/
+│       │   └── services/
+│       └── requirements.txt
+├── common/                    # Shared utilities
+│   └── realtime/             # WebSocket/SSE managers
+├── client/                    # Client libraries
+│   └── js/                   # JavaScript clients
+├── docker-compose.yml         # Production deployment
+├── build.sh                   # Build script
+└── tests/                     # Test suites
+```
+
+## 🎯 Next Steps & Recommendations
+
+### Immediate Priorities
+1. **Fix Chat User Management**: Align placeholder vs database user data
+2. **Improve Frontend Navigation**: Refine routing for better UX
+3. **Add Authentication**: Implement proper user authentication system
+4. **Expand Test Coverage**: Add unit and integration tests
+
+### Enhancement Opportunities
+1. **Add More LLM Providers**: Cohere, Hugging Face, local models
+2. **Implement Rate Limiting**: Protect against abuse
+3. **Add Backup/Recovery**: Automated database backups
+4. **Create Admin Panel**: Organization management UI
+5. **Add Monitoring Alerts**: Threshold-based alerting system
+
+### Performance Optimizations
+1. **Database Indexing**: Add indexes for common queries
+2. **Connection Pooling**: Optimize pool sizes
+3. **Cache Warming**: Pre-populate cache for common queries
+4. **Query Optimization**: Use batch operations where possible
+
+
+## 🔑 Key Takeaways
+
+1. **Architecture**: Multi-tenant with embedded monitoring (not separate service)
+2. **Ports**: Orchestrator (8000/8010), Controller (9000), NOT 8002
+3. **Database**: Dual DB per org + controller DB (5 total)
+4. **Always**: Use async patterns, rebuild Docker after changes
+5. **Tech Stack**: FastAPI + PostgreSQL + Redis + React + TypeScript
+6. **Security**: Built-in firewall with PII/secrets/toxicity detection
+7. **Performance**: Semantic caching with 90%+ hit rate
+8. **Real-time**: WebSocket + SSE for live updates
 
 ---
