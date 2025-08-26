@@ -307,38 +307,158 @@ async def store_cached_response(query: str, response: str, session_id: str = "de
     except Exception as e:
         logger.error(f"Error storing in LLM cache: {e}")
 
-async def firewall_scan(text: str) -> dict:
+async def firewall_scan(text: str, request_span=None) -> dict:
     """
-    Fan out PII, secrets, and toxicity scans in parallel.
-    Returns a dict with each scan's JSON response.
+    Enhanced firewall scanning with Phoenix tracing.
+    Fan out PII, secrets, and toxicity scans in parallel with comprehensive observability.
+    Returns a dict with each scan's JSON response and tracing metadata.
     """
     if not ENABLE_FIREWALL:
-        return {"pii": {"contains_pii": False}, "secrets": {"contains_secrets": False}, "toxicity": {"contains_toxicity": False}}
+        result = {"pii": {"contains_pii": False}, "secrets": {"contains_secrets": False}, "toxicity": {"contains_toxicity": False}}
+        
+        # Set firewall disabled attributes
+        if TRACING_AVAILABLE and request_span:
+            request_span.set_attribute("moolai.firewall.enabled", False)
+            request_span.set_attribute("moolai.firewall.blocked", False)
+        
+        return result
     
-    try:
-        # Use local firewall service functions
-        tasks = [
-            asyncio.create_task(asyncio.to_thread(_pii_local, text)),
-            asyncio.create_task(asyncio.to_thread(_secrets_local, text)),
-            asyncio.create_task(asyncio.to_thread(_toxicity_local, text)),
-        ]
-        
-        pii_result, secrets_result, toxicity_result = await asyncio.gather(*tasks)
-        
-        return {
-            "pii": pii_result,
-            "secrets": secrets_result,
-            "toxicity": toxicity_result,
-        }
-    except Exception as e:
-        logger.error(f"Firewall service error: {e}")
-        raise HTTPException(status_code=500, detail=f"Firewall error: {str(e)}")
+    if TRACING_AVAILABLE:
+        tracer = trace.get_tracer(__name__)
+        with tracer.start_as_current_span("moolai.firewall.scan") as firewall_span:
+            # Set firewall scan attributes
+            firewall_span.set_attribute("moolai.firewall.enabled", True)
+            firewall_span.set_attribute("moolai.firewall.text_length", len(text))
+            firewall_span.set_attribute("moolai.firewall.text_hash", hashlib.md5(text.encode()).hexdigest()[:8])
+            
+            try:
+                # Create child spans for individual scans
+                with tracer.start_as_current_span("moolai.firewall.pii_scan") as pii_span:
+                    pii_task = asyncio.create_task(asyncio.to_thread(_pii_local, text))
+                
+                with tracer.start_as_current_span("moolai.firewall.secrets_scan") as secrets_span:
+                    secrets_task = asyncio.create_task(asyncio.to_thread(_secrets_local, text))
+                    
+                with tracer.start_as_current_span("moolai.firewall.toxicity_scan") as toxicity_span:
+                    toxicity_task = asyncio.create_task(asyncio.to_thread(_toxicity_local, text))
+                
+                # Wait for all scans to complete
+                pii_result, secrets_result, toxicity_result = await asyncio.gather(
+                    pii_task, secrets_task, toxicity_task
+                )
+                
+                # Set individual scan results
+                pii_blocked = pii_result.get("contains_pii", False)
+                secrets_blocked = secrets_result.get("contains_secrets", False) 
+                toxicity_blocked = toxicity_result.get("contains_toxicity", False)
+                
+                firewall_span.set_attribute("moolai.firewall.pii.blocked", pii_blocked)
+                firewall_span.set_attribute("moolai.firewall.secrets.blocked", secrets_blocked)
+                firewall_span.set_attribute("moolai.firewall.toxicity.blocked", toxicity_blocked)
+                
+                # Overall firewall result
+                blocked = pii_blocked or secrets_blocked or toxicity_blocked
+                firewall_span.set_attribute("moolai.firewall.blocked", blocked)
+                
+                # Set attributes on request span for top-level visibility
+                if request_span:
+                    request_span.set_attribute("moolai.firewall.enabled", True)
+                    request_span.set_attribute("moolai.firewall.blocked", blocked)
+                    request_span.set_attribute("moolai.firewall.pii.blocked", pii_blocked)
+                    request_span.set_attribute("moolai.firewall.secrets.blocked", secrets_blocked) 
+                    request_span.set_attribute("moolai.firewall.toxicity.blocked", toxicity_blocked)
+                
+                return {
+                    "pii": pii_result,
+                    "secrets": secrets_result,
+                    "toxicity": toxicity_result,
+                }
+                
+            except Exception as e:
+                firewall_span.set_attribute("moolai.firewall.error", str(e))
+                firewall_span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
+                
+                if request_span:
+                    request_span.set_attribute("moolai.firewall.error", str(e))
+                
+                logger.error(f"Firewall service error: {e}")
+                raise HTTPException(status_code=500, detail=f"Firewall error: {str(e)}")
+    else:
+        # Fallback without tracing
+        try:
+            tasks = [
+                asyncio.create_task(asyncio.to_thread(_pii_local, text)),
+                asyncio.create_task(asyncio.to_thread(_secrets_local, text)),
+                asyncio.create_task(asyncio.to_thread(_toxicity_local, text)),
+            ]
+            
+            pii_result, secrets_result, toxicity_result = await asyncio.gather(*tasks)
+            
+            return {
+                "pii": pii_result,
+                "secrets": secrets_result,
+                "toxicity": toxicity_result,
+            }
+        except Exception as e:
+            logger.error(f"Firewall service error: {e}")
+            raise HTTPException(status_code=500, detail=f"Firewall error: {str(e)}")
 
 async def generate_llm_response(query: str, session_id: str = "default", user_id: str = "default_user") -> dict:
-    """Generate LLM response with Phoenix OpenTelemetry observability and caching"""
+    """Generate LLM response with enhanced Phoenix OpenTelemetry observability and comprehensive tracing"""
     
-    # Phoenix/OpenTelemetry tracing is handled automatically by the instrumentation
-    # Additional context can be added through the decorator parameters
+    # Create root span with vendor-prefixed attributes for comprehensive request tracing
+    tracer = None
+    if TRACING_AVAILABLE:
+        try:
+            tracer = trace.get_tracer(__name__)
+        except Exception:
+            tracer = None
+    
+    # Start comprehensive request span with vendor-prefixed attributes
+    if tracer:
+        with tracer.start_as_current_span("moolai.request.process") as request_span:
+            # Set request-level attributes using vendor prefix
+            request_span.set_attribute("moolai.session_id", session_id)
+            request_span.set_attribute("moolai.user_id", user_id)
+            request_span.set_attribute("moolai.query.length", len(query))
+            request_span.set_attribute("moolai.query.hash", hashlib.md5(query.encode()).hexdigest()[:8])
+            
+            return await _generate_llm_response_internal(query, session_id, user_id, request_span)
+    else:
+        return await _generate_llm_response_internal(query, session_id, user_id, None)
+
+async def _generate_llm_response_internal(query: str, session_id: str, user_id: str, request_span) -> dict:
+    """Internal LLM response generation with Phoenix tracing context"""
+    
+    # Firewall scanning with enhanced tracing - MUST be first to protect the system
+    logger.info(f"Firewall check starting - ENABLE_FIREWALL={ENABLE_FIREWALL}")
+    if ENABLE_FIREWALL:
+        logger.info(f"Running firewall scan on query: {query[:50]}...")
+        if TRACING_AVAILABLE:
+            tracer = trace.get_tracer(__name__)
+            with tracer.start_as_current_span("moolai.firewall.scan") as firewall_span:
+                scan_result = await firewall_scan(query.strip(), request_span)
+        else:
+            scan_result = await firewall_scan(query.strip(), request_span)
+        
+        logger.info(f"Firewall scan results: PII={scan_result['pii']['contains_pii']}, Secrets={scan_result['secrets']['contains_secrets']}, Toxicity={scan_result['toxicity']['contains_toxicity']}")
+        
+        # Check if content should be blocked
+        if scan_result["pii"]["contains_pii"] or scan_result["secrets"]["contains_secrets"] or scan_result["toxicity"]["contains_toxicity"]:
+            # Log the blocked request
+            logger.warning(f"FIREWALL BLOCKING REQUEST - PII: {scan_result['pii']['contains_pii']}, Secrets: {scan_result['secrets']['contains_secrets']}, Toxicity: {scan_result['toxicity']['contains_toxicity']}")
+            
+            # Return blocked response
+            return {
+                "answer": "Request blocked by security firewall due to sensitive content detection.",
+                "session_id": session_id,
+                "from_cache": False,
+                "similarity": None,
+                "firewall_blocked": True,
+                "firewall_reasons": scan_result
+            }
+    else:
+        logger.info("Firewall is disabled, skipping scan")
     
     # Start monitoring if available (legacy - will be removed in Phase 4)
     request_context = None
@@ -356,25 +476,46 @@ async def generate_llm_response(query: str, session_id: str = "default", user_id
         except Exception as e:
             logger.warning(f"Failed to start monitoring: {e}")
     
-    # Try dedicated LLM cache first
+    # Cache lookup with enhanced tracing
     cache_hit = False
     cache_similarity = None
     if ENABLE_CACHING:
-        cache_result = await get_cached_response(query, session_id)
-        if cache_result and cache_result.get("from_cache"):
-            cache_hit = True
-            cache_similarity = cache_result.get("similarity")
-            logger.info(f"LLM Cache HIT for session {session_id} (similarity: {cache_result.get('similarity', 'exact')})")
-            
-            # Set cache attributes on current span for Phoenix tracking (cache hit)
-            if TRACING_AVAILABLE:
-                try:
-                    current_span = trace.get_current_span()
-                    if current_span:
-                        current_span.set_attribute("cache.hit", True)
-                        current_span.set_attribute("cache.similarity", cache_similarity or 1.0)
-                except Exception:
-                    pass
+        if TRACING_AVAILABLE:
+            tracer = trace.get_tracer(__name__)
+            with tracer.start_as_current_span("moolai.cache.lookup") as cache_span:
+                # Set cache lookup attributes
+                cache_span.set_attribute("moolai.cache.enabled", True)
+                cache_span.set_attribute("moolai.cache.session_id", session_id)
+                
+                cache_result = await get_cached_response(query, session_id)
+                if cache_result and cache_result.get("from_cache"):
+                    cache_hit = True
+                    cache_similarity = cache_result.get("similarity")
+                    logger.info(f"LLM Cache HIT for session {session_id} (similarity: {cache_result.get('similarity', 'exact')})")
+                    
+                    # Set vendor-prefixed cache attributes for Phoenix tracking
+                    cache_span.set_attribute("moolai.cache.hit", True)
+                    cache_span.set_attribute("moolai.cache.similarity", cache_similarity or 1.0)
+                    cache_span.set_attribute("moolai.cache.key", cache_result.get("cache_key", "unknown"))
+                    
+                    # Also set on request span for top-level visibility
+                    if request_span:
+                        request_span.set_attribute("moolai.cache.hit", True)
+                        request_span.set_attribute("moolai.cache.similarity", cache_similarity or 1.0)
+                else:
+                    # Cache miss
+                    cache_span.set_attribute("moolai.cache.hit", False)
+                    cache_span.set_attribute("moolai.cache.similarity", 0.0)
+                    
+                    if request_span:
+                        request_span.set_attribute("moolai.cache.hit", False)
+                        request_span.set_attribute("moolai.cache.similarity", 0.0)
+        else:
+            cache_result = await get_cached_response(query, session_id)
+            if cache_result and cache_result.get("from_cache"):
+                cache_hit = True
+                cache_similarity = cache_result.get("similarity")
+                logger.info(f"LLM Cache HIT for session {session_id} (similarity: {cache_result.get('similarity', 'exact')})")
             
             # Track response with monitoring
             if monitoring_middleware and request_context:
@@ -398,28 +539,52 @@ async def generate_llm_response(query: str, session_id: str = "default", user_id
                 "similarity": cache_result.get("similarity")
             }
     
-    # Generate fresh response from OpenAI
+    # Generate fresh response from OpenAI with enhanced tracing
     logger.info(f"LLM Cache MISS - generating fresh response for session {session_id}")
     
-    # Set cache attributes on current span for Phoenix tracking (cache miss)
     if TRACING_AVAILABLE:
-        try:
-            current_span = trace.get_current_span()
-            if current_span:
-                current_span.set_attribute("cache.hit", False)
-                current_span.set_attribute("cache.similarity", 0.0)
-        except Exception:
-            pass
-    
-    response = await client.chat.completions.create(
-        model="gpt-3.5-turbo",
-        messages=[
-            {"role": "system", "content": SYSTEM_INSTRUCTION},
-            {"role": "user", "content": query.strip()}
-        ],
-        max_tokens=1000,
-        temperature=0.2
-    )
+        tracer = trace.get_tracer(__name__)
+        with tracer.start_as_current_span("moolai.llm.call") as llm_span:
+            # Set LLM call attributes with vendor prefix
+            llm_span.set_attribute("moolai.llm.model", "gpt-3.5-turbo")
+            llm_span.set_attribute("moolai.llm.temperature", 0.2)
+            llm_span.set_attribute("moolai.llm.max_tokens", 1000)
+            llm_span.set_attribute("moolai.llm.cache_miss", True)
+            
+            if request_span:
+                request_span.set_attribute("moolai.llm.model", "gpt-3.5-turbo")
+                request_span.set_attribute("moolai.llm.fresh_call", True)
+            
+            response = await client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": SYSTEM_INSTRUCTION},
+                    {"role": "user", "content": query.strip()}
+                ],
+                max_tokens=1000,
+                temperature=0.2
+            )
+            
+            # Set response attributes
+            if hasattr(response, 'usage') and response.usage:
+                llm_span.set_attribute("moolai.llm.input_tokens", response.usage.prompt_tokens or 0)
+                llm_span.set_attribute("moolai.llm.output_tokens", response.usage.completion_tokens or 0)
+                llm_span.set_attribute("moolai.llm.total_tokens", response.usage.total_tokens or 0)
+                
+                if request_span:
+                    request_span.set_attribute("moolai.tokens.input", response.usage.prompt_tokens or 0)
+                    request_span.set_attribute("moolai.tokens.output", response.usage.completion_tokens or 0)
+                    request_span.set_attribute("moolai.tokens.total", response.usage.total_tokens or 0)
+    else:
+        response = await client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": SYSTEM_INSTRUCTION},
+                {"role": "user", "content": query.strip()}
+            ],
+            max_tokens=1000,
+            temperature=0.2
+        )
     
     answer = response.choices[0].message.content
     
@@ -471,11 +636,19 @@ async def get_response(
     if not query or not query.strip():
         raise HTTPException(status_code=400, detail="Query parameter cannot be empty")
     
-    # Firewall check and monitoring
+    # Enhanced firewall check with tracing
     firewall_blocked = False
     firewall_reasons = None
     if ENABLE_FIREWALL:
-        scan = await firewall_scan(query.strip())
+        # Pass request span context to firewall scan for comprehensive tracing
+        current_span = None
+        if TRACING_AVAILABLE:
+            try:
+                current_span = trace.get_current_span()
+            except Exception:
+                pass
+        
+        scan = await firewall_scan(query.strip(), current_span)
         if scan["pii"]["contains_pii"] or scan["secrets"]["contains_secrets"] or scan["toxicity"]["contains_toxicity"]:
             firewall_blocked = True
             firewall_reasons = scan
@@ -549,9 +722,17 @@ async def post_response(request: QueryRequest):
     if not query or not query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
     
-    # Firewall check
+    # Enhanced firewall check with tracing
     if ENABLE_FIREWALL:
-        scan = await firewall_scan(query.strip())
+        # Pass request span context to firewall scan for comprehensive tracing
+        current_span = None
+        if TRACING_AVAILABLE:
+            try:
+                current_span = trace.get_current_span()
+            except Exception:
+                pass
+        
+        scan = await firewall_scan(query.strip(), current_span)
         if scan["pii"]["contains_pii"] or scan["secrets"]["contains_secrets"] or scan["toxicity"]["contains_toxicity"]:
             return JSONResponse(
                 status_code=403,

@@ -271,12 +271,12 @@ class MoolAIApiClient {
     organization_id?: string;
   }): Promise<any> {
     const queryParams = new URLSearchParams();
+    queryParams.append('use_phoenix', 'true'); // Always use Phoenix backend
     if (params?.start_date) queryParams.append('start_date', params.start_date);
     if (params?.end_date) queryParams.append('end_date', params.end_date);
     if (params?.organization_id) queryParams.append('organization_id', params.organization_id);
     
-    const queryString = queryParams.toString();
-    return this.get(`/analytics/overview${queryString ? `?${queryString}` : ''}`);
+    return this.get(`/analytics/overview?${queryParams.toString()}`);
   }
 
   async getProviderBreakdown(params?: {
@@ -285,12 +285,12 @@ class MoolAIApiClient {
     organization_id?: string;
   }): Promise<any> {
     const queryParams = new URLSearchParams();
+    queryParams.append('use_phoenix', 'true'); // Always use Phoenix backend
     if (params?.start_date) queryParams.append('start_date', params.start_date);
     if (params?.end_date) queryParams.append('end_date', params.end_date);
     if (params?.organization_id) queryParams.append('organization_id', params.organization_id);
     
-    const queryString = queryParams.toString();
-    return this.get(`/analytics/provider-breakdown${queryString ? `?${queryString}` : ''}`);
+    return this.get(`/analytics/provider-breakdown?${queryParams.toString()}`);
   }
 
   async getTimeSeriesData(params: {
@@ -301,6 +301,7 @@ class MoolAIApiClient {
     organization_id?: string;
   }): Promise<any> {
     const queryParams = new URLSearchParams();
+    queryParams.append('use_phoenix', 'true'); // Always use Phoenix backend
     queryParams.append('metric', params.metric);
     queryParams.append('interval', params.interval);
     if (params.start_date) queryParams.append('start_date', params.start_date);
@@ -316,12 +317,12 @@ class MoolAIApiClient {
     organization_id?: string;
   }): Promise<any> {
     const queryParams = new URLSearchParams();
+    queryParams.append('use_phoenix', 'true'); // Always use Phoenix backend
     if (params?.start_date) queryParams.append('start_date', params.start_date);
     if (params?.end_date) queryParams.append('end_date', params.end_date);
     if (params?.organization_id) queryParams.append('organization_id', params.organization_id);
     
-    const queryString = queryParams.toString();
-    return this.get(`/analytics/cache-performance${queryString ? `?${queryString}` : ''}`);
+    return this.get(`/analytics/cache-performance?${queryParams.toString()}`);
   }
 
   async getFirewallActivity(params?: {

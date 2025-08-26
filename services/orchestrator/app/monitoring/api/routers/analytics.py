@@ -50,7 +50,7 @@ class PhoenixAnalyticsService:
                 "firewall_blocks": 0
             },
             "provider_breakdown": [],
-            "data_source": "phoenix",
+            "data_source": "phoenix_native",
             "phoenix_available": True,  # Always true since we're using PostgreSQL
             "phoenix_connected": True
         }
@@ -119,7 +119,10 @@ class PhoenixAnalyticsService:
                         (s.name = 'UNKNOWN' AND s.attributes ? 'gen_ai') OR
                         -- Include spans with LLM/Phoenix classification attributes
                         s.attributes ? 'llm.system' OR
-                        s.attributes ? 'phoenix.span_type'
+                        s.attributes ? 'phoenix.span_type' OR
+                        -- Include vendor-prefixed MoolAI spans (nested JSON)
+                        s.attributes ? 'moolai' OR
+                        s.name LIKE 'moolai.%'
                     )
                         AND s.start_time >= :start_time
                         AND s.start_time <= :end_time
@@ -133,12 +136,17 @@ class PhoenixAnalyticsService:
                         CASE 
                             WHEN COUNT(*) > 0 THEN 
                                 (COUNT(*) FILTER (WHERE 
+                                    -- Check for vendor-prefixed cache attributes (nested JSON)
+                                    (llm_spans.attributes->'moolai'->'cache'->>'hit')::boolean = true OR 
+                                    -- Fallback to legacy cache attributes
                                     (llm_spans.attributes->>'cache.hit')::boolean = true OR 
                                     (llm_spans.attributes->'cache'->>'hit')::boolean = true
                                 )) * 100.0 / COUNT(*)
                             ELSE 0 
                         END as cache_hit_rate,
-                        0 as firewall_blocks
+                        COUNT(*) FILTER (WHERE 
+                            (llm_spans.attributes->'moolai'->'firewall'->>'blocked')::boolean = true
+                        ) as firewall_blocks
                     FROM llm_spans
                     WHERE 1=1  -- Include all LLM spans regardless of token counts
                 ),
@@ -151,7 +159,7 @@ class PhoenixAnalyticsService:
                         SUM(cost) as cost
                     FROM llm_spans
                     WHERE 1=1  -- Include all LLM spans regardless of token counts
-                    GROUP BY provider, model_name
+                    GROUP BY COALESCE(provider, 'openai'), COALESCE(model_name, 'gpt-3.5-turbo')
                 )
                 SELECT 
                     s.total_api_calls,
@@ -246,12 +254,16 @@ class PhoenixAnalyticsService:
                         (s.name = 'UNKNOWN' AND s.attributes ? 'gen_ai') OR
                         -- Include spans with LLM/Phoenix classification attributes
                         s.attributes ? 'llm.system' OR
-                        s.attributes ? 'phoenix.span_type'
+                        s.attributes ? 'phoenix.span_type' OR
+                        -- Include vendor-prefixed MoolAI spans (nested JSON)
+                        s.attributes ? 'moolai' OR
+                        s.name LIKE 'moolai.%'
                     )
                         AND s.start_time >= :start_time
                         AND s.start_time <= :end_time
                         AND (COALESCE((s.attributes->'gen_ai'->'usage'->>'prompt_tokens')::INTEGER, 0) > 0 
-                             OR COALESCE((s.attributes->'gen_ai'->'usage'->>'completion_tokens')::INTEGER, 0) > 0)
+                             OR COALESCE((s.attributes->'gen_ai'->'usage'->>'completion_tokens')::INTEGER, 0) > 0 
+                             OR s.attributes ? 'moolai.session_id')
                 ),
                 provider_stats AS (
                     SELECT 
@@ -339,7 +351,7 @@ class PhoenixAnalyticsService:
                 "interval": interval,
                 "time_range": {"start": start_date.isoformat(), "end": end_date.isoformat()},
                 "data": [],
-                "data_source": "phoenix",
+                "data_source": "phoenix_native",
                 "error": "Phoenix client not available"
             }
         
@@ -353,7 +365,7 @@ class PhoenixAnalyticsService:
                 "end": end_date.isoformat()
             },
             "data": [],
-            "data_source": "phoenix"
+            "data_source": "phoenix_native"
         }
     
     async def get_provider_breakdown_from_langfuse(
@@ -523,6 +535,16 @@ async def get_analytics_overview(
         if not start_date:
             start_date = end_date - timedelta(days=30)
         
+        # If end_date is at midnight (from date-only input), set to end of day
+        if end_date.time() == datetime.min.time():
+            logger.info(f"Adjusting end_date from midnight to end-of-day: {end_date} -> {end_date.replace(hour=23, minute=59, second=59, microsecond=999999)}")
+            end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+        
+        # If start_date is at midnight (from date-only input), keep as beginning of day
+        if start_date.time() == datetime.min.time():
+            logger.info(f"Confirmed start_date at beginning-of-day: {start_date}")
+            start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        
         # Always use Phoenix backend (legacy database removed)
         if use_phoenix:
             return await phoenix_analytics.get_analytics_overview_from_phoenix(
@@ -569,6 +591,16 @@ async def get_provider_breakdown(
         if not start_date:
             start_date = end_date - timedelta(days=30)
         
+        # If end_date is at midnight (from date-only input), set to end of day
+        if end_date.time() == datetime.min.time():
+            logger.info(f"Adjusting end_date from midnight to end-of-day: {end_date} -> {end_date.replace(hour=23, minute=59, second=59, microsecond=999999)}")
+            end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+        
+        # If start_date is at midnight (from date-only input), keep as beginning of day
+        if start_date.time() == datetime.min.time():
+            logger.info(f"Confirmed start_date at beginning-of-day: {start_date}")
+            start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        
         # Always use Phoenix backend (legacy database removed)
         if use_phoenix:
             return await phoenix_analytics.get_provider_breakdown_from_phoenix(
@@ -611,6 +643,16 @@ async def get_time_series_data(
                 start_date = end_date - timedelta(hours=24)
             else:
                 start_date = end_date - timedelta(days=30)
+        
+        # If end_date is at midnight (from date-only input), set to end of day
+        if end_date.time() == datetime.min.time():
+            logger.info(f"Adjusting end_date from midnight to end-of-day: {end_date} -> {end_date.replace(hour=23, minute=59, second=59, microsecond=999999)}")
+            end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+        
+        # If start_date is at midnight (from date-only input), keep as beginning of day
+        if start_date.time() == datetime.min.time():
+            logger.info(f"Confirmed start_date at beginning-of-day: {start_date}")
+            start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
         
         # Always use Phoenix backend (legacy database removed)
         if use_phoenix:

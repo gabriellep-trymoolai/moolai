@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { TrendingUp, TrendingDown, Clock, Target, Loader2, Wifi, WifiOff } from 'lucide-react';
+import { TrendingUp, TrendingDown, Clock, Target, Loader2, Wifi, WifiOff, Shield, AlertTriangle } from 'lucide-react';
 import { apiClient } from '@/services/api-client';
 import { useAppSession } from '@/contexts/AppContext';
 
@@ -95,9 +95,22 @@ export const AnalyticsDashboard: React.FC = () => {
         start.setDate(end.getDate() - 30);
     }
     
+    // For date-based queries, set start to beginning of day and end to end of day
+    if (['7d', '30d', '90d'].includes(timeRange)) {
+      start.setHours(0, 0, 0, 0);
+      end.setHours(23, 59, 59, 999);
+      
+      // Return date-only strings for date-based ranges
+      return {
+        start: start.toISOString().split('T')[0],
+        end: end.toISOString().split('T')[0]
+      };
+    }
+    
+    // For time-based ranges (1h, 24h), return full ISO strings
     return {
-      start: start.toISOString().split('T')[0],
-      end: end.toISOString().split('T')[0]
+      start: start.toISOString(),
+      end: end.toISOString()
     };
   };
 
@@ -194,6 +207,12 @@ export const AnalyticsDashboard: React.FC = () => {
         break;
       default:
         start.setDate(end.getDate() - 30);
+    }
+    
+    // For date-based queries, set start to beginning of day and end to end of day
+    if (['7d', '30d', '90d'].includes(timeRange)) {
+      start.setHours(0, 0, 0, 0);  // Start of start date
+      end.setHours(23, 59, 59, 999);  // End of end date
     }
     
     return {
@@ -376,6 +395,53 @@ export const AnalyticsDashboard: React.FC = () => {
                 : `$${(analyticsOverview?.overview?.total_cost || 0).toFixed(2)}`
           }
           icon={Target}
+          isLoading={!realTimeMetrics && overviewLoading}
+        />
+      </div>
+
+      {/* Enhanced Security & Performance Metrics */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <MetricCard
+          title="Firewall Blocks"
+          value={
+            realTimeMetrics 
+              ? realTimeMetrics.firewall_blocks.toLocaleString()
+              : overviewLoading 
+                ? "Loading..." 
+                : (analyticsOverview?.overview?.firewall_blocks || 0).toLocaleString()
+          }
+          icon={Shield}
+          isLoading={!realTimeMetrics && overviewLoading}
+        />
+        
+        <MetricCard
+          title="Cache Efficiency"
+          value={
+            realTimeMetrics 
+              ? `${realTimeMetrics.cache_hit_rate.toFixed(1)}%`
+              : cacheLoading 
+                ? "Loading..." 
+                : `${cachePerformance?.cache_performance?.cache_hit_rate || 0}%`
+          }
+          icon={Target}
+          isLoading={!realTimeMetrics && cacheLoading}
+          trend={realTimeMetrics && realTimeMetrics.cache_hit_rate > 50 ? {
+            value: "Optimized",
+            isPositive: true,
+            description: "High cache hit rate"
+          } : undefined}
+        />
+        
+        <MetricCard
+          title="Request Security"
+          value={
+            realTimeMetrics 
+              ? `${((realTimeMetrics.total_api_calls - realTimeMetrics.firewall_blocks) / Math.max(realTimeMetrics.total_api_calls, 1) * 100).toFixed(1)}%`
+              : overviewLoading 
+                ? "Loading..." 
+                : `${analyticsOverview?.overview ? ((analyticsOverview.overview.total_api_calls - analyticsOverview.overview.firewall_blocks) / Math.max(analyticsOverview.overview.total_api_calls, 1) * 100).toFixed(1) : 100}%`
+          }
+          icon={AlertTriangle}
           isLoading={!realTimeMetrics && overviewLoading}
         />
       </div>
