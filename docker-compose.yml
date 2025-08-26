@@ -29,6 +29,10 @@ volumes:
     driver: local
   controller-data:
     driver: local
+  phoenix-org-001-data:
+    driver: local
+  phoenix-org-002-data:
+    driver: local
 
 services:
   # PostgreSQL Database for Organization 001
@@ -215,6 +219,9 @@ services:
       IMAGE_NAME: moolai/orchestrator:latest
       LOG_LEVEL: INFO
       OPENAI_API_KEY: ${OPENAI_API_KEY}
+      # Phoenix Configuration - LLM Observability for Org 001
+      PHOENIX_HOST: http://phoenix-org-001:6006
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://phoenix-org-001:4317
     ports:
       - "8000:8000"
     security_opt:
@@ -263,6 +270,9 @@ services:
       IMAGE_NAME: moolai/orchestrator:latest
       LOG_LEVEL: INFO
       OPENAI_API_KEY: ${OPENAI_API_KEY}
+      # Phoenix Configuration - LLM Observability for Org 002
+      PHOENIX_HOST: http://phoenix-org-002:6006
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://phoenix-org-002:4317
     ports:
       - "8010:8000"
     security_opt:
@@ -320,6 +330,74 @@ services:
       - NET_BIND_SERVICE
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ===============================================
+  # PHOENIX AI OBSERVABILITY PLATFORM
+  # ===============================================
+  
+  # Phoenix AI Observability for Organization 001
+  phoenix-org-001:
+    image: arizephoenix/phoenix:latest
+    restart: unless-stopped
+    networks:
+      - moolai-internal
+      - moolai-backend
+    ports:
+      - "6006:6006"  # UI and HTTP collector
+      - "4317:4317"  # gRPC collector
+    environment:
+      PHOENIX_WORKING_DIR: /mnt/data
+      # Use PostgreSQL instead of SQLite - connect to orchestrator database
+      PHOENIX_SQL_DATABASE_URL: postgresql://orchestrator_user:secure_password_orch_001@postgres-orchestrator-001:5432/orchestrator_org_001
+      PHOENIX_SQL_DATABASE_SCHEMA: phoenix
+    volumes:
+      - phoenix-org-001-data:/mnt/data
+    depends_on:
+      - postgres-orchestrator-001
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:6006/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Phoenix AI Observability for Organization 002
+  phoenix-org-002:
+    image: arizephoenix/phoenix:latest
+    restart: unless-stopped
+    networks:
+      - moolai-internal
+      - moolai-backend
+    ports:
+      - "6007:6006"  # UI and HTTP collector (different port to avoid conflict)
+      - "4318:4317"  # gRPC collector (different port to avoid conflict)
+    environment:
+      PHOENIX_WORKING_DIR: /mnt/data
+      # Use PostgreSQL - connect to orchestrator org 002 database
+      PHOENIX_SQL_DATABASE_URL: postgresql://orchestrator_user:secure_password_orch_002@postgres-orchestrator-002:5432/orchestrator_org_002
+      PHOENIX_SQL_DATABASE_SCHEMA: phoenix
+    volumes:
+      - phoenix-org-002-data:/mnt/data
+    depends_on:
+      - postgres-orchestrator-002
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:6006/"]
       interval: 30s
       timeout: 10s
       retries: 3

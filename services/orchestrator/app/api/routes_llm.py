@@ -6,6 +6,7 @@ Provides endpoints for LLM prompt processing with caching and agent integration.
 Integrates with the existing prompt-response agent and caching system.
 """
 
+import os
 import time
 import uuid
 from datetime import datetime
@@ -13,8 +14,16 @@ from typing import Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, Request, Depends
 from pydantic import BaseModel, Field
 
+# Phoenix/OpenTelemetry observability
+try:
+    from opentelemetry import trace
+    TRACING_AVAILABLE = True
+except ImportError:
+    TRACING_AVAILABLE = False
+
 # Import the existing prompt-response agent
 from ..agents import PromptResponseAgent
+from .dependencies import get_prompt_agent
 
 
 router = APIRouter(prefix="/api/v1/llm", tags=["llm"])
@@ -65,17 +74,6 @@ class AgentRequest(BaseModel):
     enable_evaluation: Optional[bool] = Field(True, description="Enable quality evaluation")
 
 
-def get_prompt_agent(request: Request) -> PromptResponseAgent:
-    """Dependency to get prompt response agent from app state"""
-    if hasattr(request.app.state, 'prompt_agent') and request.app.state.prompt_agent:
-        return request.app.state.prompt_agent
-    else:
-        # Fallback: create a new agent instance
-        import os
-        return PromptResponseAgent(
-            openai_api_key=os.getenv("OPENAI_API_KEY"),
-            organization_id=os.getenv("ORGANIZATION_ID", "default-org")
-        )
 
 
 @router.post("/prompt", response_model=PromptResponse)
@@ -102,6 +100,16 @@ async def process_llm_prompt(
     
     # Generate session ID if not provided
     session_id = request.session_id or f"session_{uuid.uuid4().hex[:8]}"
+    
+    # Phoenix/OpenTelemetry tracing
+    tracer = trace.get_tracer("llm-service") if TRACING_AVAILABLE else None
+    span = tracer.start_span("llm_prompt_processing") if tracer else None
+    
+    if span:
+        span.set_attribute("llm.model", request.model or "gpt-3.5-turbo")
+        span.set_attribute("llm.session_id", session_id)
+        span.set_attribute("llm.user_id", request.user_id or "anonymous")
+        span.set_attribute("llm.use_cache", request.use_cache)
     
     try:
         # Process using agent (main_response.py handles its own caching)
@@ -138,6 +146,36 @@ async def process_llm_prompt(
             from_cache=getattr(agent_response, 'from_cache', False),
             cache_similarity=getattr(agent_response, 'cache_similarity', None)
         )
+        
+        # Add cache information to Phoenix span if available
+        if span and TRACING_AVAILABLE:
+            span.set_attribute("cache.hit", response.from_cache)
+            if response.cache_similarity is not None:
+                span.set_attribute("cache.similarity", response.cache_similarity)
+            span.set_attribute("llm.response.cost", response.cost)
+            span.set_attribute("llm.response.latency_ms", response.latency_ms)
+        
+        # Also set cache attributes on the current active span (likely the OpenAI span)
+        if TRACING_AVAILABLE:
+            try:
+                current_span = trace.get_current_span()
+                if current_span and current_span != span:
+                    # Use OpenInference semantic conventions for cache tracking
+                    current_span.set_attribute("cache.hit", response.from_cache)
+                    if response.cache_similarity is not None:
+                        current_span.set_attribute("cache.similarity", response.cache_similarity)
+                    current_span.set_attribute("llm.response.cost", response.cost)
+                    current_span.set_attribute("llm.response.latency_ms", response.latency_ms)
+                    
+                    # Add token count for cache tracking (following OpenInference conventions)
+                    if response.from_cache:
+                        current_span.set_attribute("llm.token_count.prompt_details.cache_read", response.prompt_tokens)
+                    else:
+                        current_span.set_attribute("llm.token_count.prompt_details.cache_write", response.prompt_tokens)
+            except Exception as e:
+                # Log but don't fail the request
+                pass
+        
         
         return response
         
@@ -234,12 +272,21 @@ async def call_prompt_response_agent(
     """
     start_time = time.time()
     
+    # Generate session ID if not provided
+    session_id = request.session_id or f"agent_session_{uuid.uuid4().hex[:8]}"
+    
+    # Phoenix/OpenTelemetry tracing
+    tracer = trace.get_tracer("agent-service") if TRACING_AVAILABLE else None
+    span = tracer.start_span("agent_prompt_response") if tracer else None
+    
+    if span:
+        span.set_attribute("agent.session_id", session_id)
+        span.set_attribute("agent.user_id", request.user_id or "anonymous")
+        span.set_attribute("agent.evaluation_enabled", request.enable_evaluation)
+    
     try:
         if not agent:
             raise HTTPException(status_code=503, detail="Prompt response agent not available")
-        
-        # Generate session ID if not provided
-        session_id = request.session_id or f"agent_session_{uuid.uuid4().hex[:8]}"
         
         # Create agent request
         class AgentRequestInternal:

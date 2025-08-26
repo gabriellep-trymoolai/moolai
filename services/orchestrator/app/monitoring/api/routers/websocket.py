@@ -28,7 +28,7 @@ from realtime import (
 	EventBus,
 	EventType
 )
-from ..dependencies import get_monitoring_middleware, get_system_monitoring_middleware
+from ..dependencies import get_system_monitoring_middleware
 
 logger = logging.getLogger(__name__)
 

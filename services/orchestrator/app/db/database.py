@@ -183,7 +183,6 @@ class DatabaseManager:
 		"""Initialize monitoring database tables."""
 		# Import monitoring models to ensure they're registered with MonitoringBase.metadata
 		from ..monitoring.models.system_metrics import UserSystemPerformance, OrchestratorVersionHistory, SystemPerformanceAggregated, SystemAlert
-		from ..monitoring.models.user_metrics import UserLLMStatistics, UserLLMRealtime, UserSession
 		
 		print(f"Creating monitoring database tables...")
 		print(f"Registered monitoring tables: {list(MonitoringBase.metadata.tables.keys())}")

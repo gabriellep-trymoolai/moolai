@@ -2,7 +2,13 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+# Phoenix/OpenTelemetry observability - OpenAI client is auto-instrumented
 from openai import AsyncOpenAI
+try:
+    from opentelemetry import trace
+    TRACING_AVAILABLE = True
+except ImportError:
+    TRACING_AVAILABLE = False
 import os
 from dotenv import load_dotenv
 import asyncio
@@ -19,16 +25,64 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../services'))
 from Firewall.server import _pii_local, _secrets_local, _toxicity_local
 
+# Import evaluation services
+evaluation_path = os.path.join(os.path.dirname(__file__), '../../services/Evaluation')
+if evaluation_path not in sys.path:
+    sys.path.append(evaluation_path)
+    
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+try:
+    from answer_correctness import evaluate_answer_correctness
+    from answer_relevance import evaluate_answer_relevance  
+    from goal_accuracy import evaluate_goal_accuracy
+    from hallucination import evaluate_hallucination
+    from summarization import evaluate_summarization
+    logger.info("Evaluation services imported successfully")
+except ImportError as e:
+    logger.warning(f"Could not import evaluation services: {e}")
+    # Create placeholder functions to avoid runtime errors
+    async def evaluate_answer_correctness(query: str, answer: str) -> dict:
+        return {"score": 0.0, "explanation": "Evaluation service unavailable"}
+    async def evaluate_answer_relevance(query: str, answer: str) -> dict:
+        return {"score": 0.0, "explanation": "Evaluation service unavailable"}
+    async def evaluate_goal_accuracy(query: str, answer: str) -> dict:
+        return {"score": 0.0, "explanation": "Evaluation service unavailable"}
+    async def evaluate_hallucination(query: str, answer: str) -> dict:
+        return {"score": 0.0, "explanation": "Evaluation service unavailable"}
+    async def evaluate_summarization(query: str, answer: str) -> dict:
+        return {"score": 0.0, "explanation": "Evaluation service unavailable"}
 
 # Import monitoring middleware - conditional to avoid import issues
 monitoring_middleware = None
 LLMMonitoringMiddleware = None
 try:
-    sys.path.append(os.path.join(os.path.dirname(__file__), '../../'))
-    from monitoring.middleware.monitoring import LLMMonitoringMiddleware
+    # Use absolute path to find the monitoring middleware
+    import sys
+    import os
+    
+    # Get the absolute path to the app directory
+    current_file = os.path.abspath(__file__)
+    agents_dir = os.path.dirname(current_file)  # /app/app/agents/Prompt Response/
+    app_dir = os.path.dirname(os.path.dirname(agents_dir))  # /app/app/
+    root_dir = os.path.dirname(app_dir)  # /app/
+    
+    # Add both app directory and root directory to Python path
+    if app_dir not in sys.path:
+        sys.path.insert(0, app_dir)
+    if root_dir not in sys.path:
+        sys.path.insert(0, root_dir)
+    
+    # Try multiple import approaches
+    try:
+        from monitoring.middleware.monitoring import LLMMonitoringMiddleware
+        logger.info("Successfully imported LLMMonitoringMiddleware via relative import")
+    except ImportError:
+        from app.monitoring.middleware.monitoring import LLMMonitoringMiddleware
+        logger.info("Successfully imported LLMMonitoringMiddleware via absolute import")
+        
 except ImportError as e:
     logger.warning(f"Could not import monitoring middleware: {e}")
     LLMMonitoringMiddleware = None
@@ -36,11 +90,15 @@ except ImportError as e:
 # Load environment variables
 load_dotenv()
 
-# Initialize OpenAI client
+# Organization configuration
+organization_id = os.getenv("ORGANIZATION_ID", "org_001")
+
+# Initialize OpenAI client with Phoenix OpenTelemetry instrumentation
 openai_api_key = os.getenv("OPENAI_API_KEY")
 if not openai_api_key:
     raise ValueError("OPENAI_API_KEY environment variable is required")
 
+# Initialize OpenAI client - Phoenix OpenTelemetry instrumentation handles tracing automatically  
 client = AsyncOpenAI(api_key=openai_api_key)
 
 # Cache service configuration
@@ -277,9 +335,12 @@ async def firewall_scan(text: str) -> dict:
         raise HTTPException(status_code=500, detail=f"Firewall error: {str(e)}")
 
 async def generate_llm_response(query: str, session_id: str = "default", user_id: str = "default_user") -> dict:
-    """Generate LLM response with dedicated LLM cache integration and monitoring"""
+    """Generate LLM response with Phoenix OpenTelemetry observability and caching"""
     
-    # Start monitoring if available
+    # Phoenix/OpenTelemetry tracing is handled automatically by the instrumentation
+    # Additional context can be added through the decorator parameters
+    
+    # Start monitoring if available (legacy - will be removed in Phase 4)
     request_context = None
     if monitoring_middleware:
         try:
@@ -305,6 +366,16 @@ async def generate_llm_response(query: str, session_id: str = "default", user_id
             cache_similarity = cache_result.get("similarity")
             logger.info(f"LLM Cache HIT for session {session_id} (similarity: {cache_result.get('similarity', 'exact')})")
             
+            # Set cache attributes on current span for Phoenix tracking (cache hit)
+            if TRACING_AVAILABLE:
+                try:
+                    current_span = trace.get_current_span()
+                    if current_span:
+                        current_span.set_attribute("cache.hit", True)
+                        current_span.set_attribute("cache.similarity", cache_similarity or 1.0)
+                except Exception:
+                    pass
+            
             # Track response with monitoring
             if monitoring_middleware and request_context:
                 try:
@@ -329,6 +400,17 @@ async def generate_llm_response(query: str, session_id: str = "default", user_id
     
     # Generate fresh response from OpenAI
     logger.info(f"LLM Cache MISS - generating fresh response for session {session_id}")
+    
+    # Set cache attributes on current span for Phoenix tracking (cache miss)
+    if TRACING_AVAILABLE:
+        try:
+            current_span = trace.get_current_span()
+            if current_span:
+                current_span.set_attribute("cache.hit", False)
+                current_span.set_attribute("cache.similarity", 0.0)
+        except Exception:
+            pass
+    
     response = await client.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=[
@@ -369,6 +451,7 @@ async def generate_llm_response(query: str, session_id: str = "default", user_id
     }
 
 @app.get("/respond")
+# Phoenix/OpenTelemetry tracing handled automatically
 async def get_response(
     query: str = Query(..., description="User query to get LLM response for"),
     session_id: str = Query("default", description="Session ID for caching"),
@@ -449,6 +532,7 @@ async def get_response(
         )
 
 @app.post("/respond", response_model=QueryResponse)
+# Phoenix/OpenTelemetry tracing handled automatically
 async def post_response(request: QueryRequest):
     """
     Get LLM response for a user query (POST version with JSON body).

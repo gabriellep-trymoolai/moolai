@@ -24,11 +24,29 @@ from .api.routes_firewall import router as firewall_router
 # Import monitoring API routers
 from .monitoring.api.routers.system_metrics import router as monitoring_metrics_router
 from .monitoring.api.routers.streaming import router as monitoring_streaming_router
-from .monitoring.api.routers.websocket import router as monitoring_websocket_router
+# Monitoring WebSocket router disabled - analytics now handled by unified /ws/v1/session
+# from .monitoring.api.routers.websocket import router as monitoring_websocket_router
 from .monitoring.api.routers.analytics import router as analytics_router
 
 # Import agents
 from .agents import PromptResponseAgent
+
+# Phoenix Arize AI observability client
+try:
+    from opentelemetry import trace, metrics
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.metrics import MeterProvider
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+    from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+    from opentelemetry.instrumentation.openai import OpenAIInstrumentor
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+    PHOENIX_AVAILABLE = True
+except ImportError:
+    PHOENIX_AVAILABLE = False
+    print("Warning: Phoenix/OpenTelemetry not available - continuing without LLM observability")
 
 # Load environment variables
 from dotenv import load_dotenv
@@ -114,33 +132,104 @@ async def lifespan(app: FastAPI):
         app.state.session_config = None
         app.state.buffer_manager = None
     
-    # Initialize embedded monitoring system
+    # Initialize embedded system monitoring
     try:
         from .monitoring.middleware.system_monitoring import SystemPerformanceMiddleware
         import redis.asyncio as redis
         
-        print("Initializing embedded monitoring system...")
+        print("Initializing embedded system monitoring...")
         
-        # Setup Redis connection for monitoring
+        # Setup Redis connection for system monitoring
         redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
         redis_client = redis.from_url(redis_url)
         
-        # Create monitoring middleware
-        monitoring_middleware = SystemPerformanceMiddleware(
+        # Create system monitoring middleware
+        system_monitoring_middleware = SystemPerformanceMiddleware(
             redis_client=redis_client,
             organization_id=organization_id,
             collection_interval=30,  # 30 seconds for testing
             enable_realtime_redis=True
         )
         
-        # Start background monitoring
-        await monitoring_middleware.start_continuous_organization_monitoring()
-        app.state.monitoring_middleware = monitoring_middleware
+        # Start background system monitoring
+        await system_monitoring_middleware.start_continuous_organization_monitoring()
+        app.state.system_monitoring_middleware = system_monitoring_middleware
         
-        print(f"Embedded monitoring started for organization: {organization_id}")
+        print(f"System monitoring started for organization: {organization_id}")
     except Exception as e:
-        print(f"Embedded monitoring initialization failed: {e}")
-        app.state.monitoring_middleware = None
+        print(f"System monitoring initialization failed: {e}")
+        app.state.system_monitoring_middleware = None
+    
+    # Initialize Phoenix AI observability for LLM monitoring
+    try:
+        if PHOENIX_AVAILABLE:
+            print("Initializing Phoenix AI observability...")
+            
+            # Get Phoenix configuration
+            phoenix_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://phoenix:4317")
+            project_name = os.getenv("PHOENIX_PROJECT_NAME", f"moolai-{organization_id}")
+            
+            # Create resource with service information
+            resource = Resource.create({
+                "service.name": "moolai-orchestrator",
+                "service.version": "1.0.0",
+                "service.instance.id": organization_id,
+                "project.name": project_name
+            })
+            
+            # Initialize tracing
+            tracer_provider = TracerProvider(resource=resource)
+            trace.set_tracer_provider(tracer_provider)
+            
+            # Custom span processor to properly classify LLM spans
+            from .monitoring.phoenix_span_processor import PhoenixLLMSpanProcessor
+            llm_span_processor = PhoenixLLMSpanProcessor()
+            tracer_provider.add_span_processor(llm_span_processor)
+            
+            # Configure OTLP span exporter for Phoenix
+            otlp_exporter = OTLPSpanExporter(
+                endpoint=phoenix_endpoint,
+                insecure=True  # Use insecure connection for internal Docker network
+            )
+            span_processor = BatchSpanProcessor(otlp_exporter)
+            tracer_provider.add_span_processor(span_processor)
+            
+            # Initialize metrics (optional)
+            metric_reader = PeriodicExportingMetricReader(
+                OTLPMetricExporter(
+                    endpoint=phoenix_endpoint,
+                    insecure=True
+                ),
+                export_interval_millis=30000
+            )
+            meter_provider = MeterProvider(
+                resource=resource,
+                metric_readers=[metric_reader]
+            )
+            metrics.set_meter_provider(meter_provider)
+            
+            # Auto-instrument OpenAI calls
+            OpenAIInstrumentor().instrument()
+            
+            # Auto-instrument FastAPI
+            FastAPIInstrumentor.instrument_app(app)
+            
+            # Store configuration in app state
+            app.state.phoenix_tracer = trace.get_tracer("moolai-orchestrator")
+            app.state.phoenix_meter = metrics.get_meter("moolai-orchestrator")
+            app.state.phoenix_endpoint = phoenix_endpoint
+            
+            print(f"Phoenix observability initialized for organization: {organization_id}")
+            print(f"Phoenix endpoint: {phoenix_endpoint}")
+            print(f"Project name: {project_name}")
+        else:
+            print("Phoenix/OpenTelemetry packages not available - skipping initialization")
+            app.state.phoenix_tracer = None
+            app.state.phoenix_meter = None
+    except Exception as e:
+        print(f"Phoenix initialization failed: {e}")
+        app.state.phoenix_tracer = None
+        app.state.phoenix_meter = None
     
     yield
     
@@ -160,14 +249,25 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"Error stopping session management: {e}")
     
-    # Stop embedded monitoring
+    # Stop system monitoring
     try:
-        if hasattr(app.state, 'monitoring_middleware') and app.state.monitoring_middleware:
-            print("Stopping embedded monitoring...")
-            await app.state.monitoring_middleware.stop_continuous_organization_monitoring()
-            print("Embedded monitoring stopped")
+        if hasattr(app.state, 'system_monitoring_middleware') and app.state.system_monitoring_middleware:
+            print("Stopping system monitoring...")
+            await app.state.system_monitoring_middleware.stop_continuous_organization_monitoring()
+            print("System monitoring stopped")
     except Exception as e:
-        print(f"Error stopping embedded monitoring: {e}")
+        print(f"Error stopping system monitoring: {e}")
+    
+    # Phoenix client cleanup
+    try:
+        if hasattr(app.state, 'phoenix_tracer') and app.state.phoenix_tracer:
+            print("Stopping Phoenix observability...")
+            # Flush any pending traces
+            if trace.get_tracer_provider():
+                trace.get_tracer_provider().force_flush(timeout_millis=5000)
+            print("Phoenix observability stopped")
+    except Exception as e:
+        print(f"Error stopping Phoenix observability: {e}")
     
     # Deregister from controller
     try:
@@ -213,7 +313,8 @@ app.include_router(firewall_router) # Firewall router already has prefix
 # Include monitoring API routers (routers already have their own prefixes)
 app.include_router(monitoring_metrics_router, tags=["monitoring"])
 app.include_router(monitoring_streaming_router, tags=["streaming"])
-app.include_router(monitoring_websocket_router, tags=["websocket"])
+# Monitoring WebSocket router disabled - analytics handled by unified /ws/v1/session
+# app.include_router(monitoring_websocket_router, tags=["websocket"])
 app.include_router(analytics_router, prefix="/api/v1", tags=["analytics"])
 
 # Setup static file serving for frontend

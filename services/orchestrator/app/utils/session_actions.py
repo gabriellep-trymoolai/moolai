@@ -43,7 +43,10 @@ class SessionActionProcessor:
             "send_message": self._handle_message_action,
             "join_conversation": self._handle_join_conversation_action,
             "heartbeat": self._handle_heartbeat_action,
-            "disconnect": self._handle_disconnect_action
+            "disconnect": self._handle_disconnect_action,
+            "analytics_subscribe": self._handle_analytics_subscribe_action,
+            "analytics_unsubscribe": self._handle_analytics_unsubscribe_action,
+            "analytics_request": self._handle_analytics_request_action
         }
     
     async def process_action(self, 
@@ -109,7 +112,10 @@ class SessionActionProcessor:
             "send_message": [SessionState.ACTIVE, SessionState.IDLE],
             "join_conversation": [SessionState.ACTIVE, SessionState.IDLE],
             "heartbeat": [SessionState.ACTIVE, SessionState.PROCESSING, SessionState.IDLE],
-            "disconnect": [SessionState.ACTIVE, SessionState.PROCESSING, SessionState.IDLE, SessionState.DISCONNECTING]
+            "disconnect": [SessionState.ACTIVE, SessionState.PROCESSING, SessionState.IDLE, SessionState.DISCONNECTING],
+            "analytics_subscribe": [SessionState.ACTIVE, SessionState.IDLE],
+            "analytics_unsubscribe": [SessionState.ACTIVE, SessionState.IDLE],
+            "analytics_request": [SessionState.ACTIVE, SessionState.IDLE]
         }
         
         allowed_states = action_state_map.get(action_type, [])
@@ -378,6 +384,145 @@ class SessionActionProcessor:
             return ActionResult(
                 success=False,
                 action_type="disconnect",
+                data={},
+                side_effects=side_effects,
+                error=str(e)
+            )
+
+    async def _handle_analytics_subscribe_action(self, msg: Dict[str, Any], user_id: str, session_id: str, current_state: SessionState) -> ActionResult:
+        """Handle analytics subscription request."""
+        side_effects = []
+        
+        try:
+            # Mark session as subscribed to analytics
+            self.session_manager.update_activity(
+                session_id,
+                custom_data={"analytics_subscribed": True, "subscribed_at": _now_iso()}
+            )
+            side_effects.append("analytics_subscription_recorded")
+            
+            # Update buffer manager if available
+            if self.buffer_manager:
+                metadata = {
+                    "analytics_subscribed": True,
+                    "session_id": session_id,
+                    "subscribed_at": _now_iso()
+                }
+                self.buffer_manager.update_active_user(
+                    user_id=user_id,
+                    orch_id=session_id,
+                    metadata=metadata
+                )
+                side_effects.append("buffer_subscription_updated")
+            
+            return ActionResult(
+                success=True,
+                action_type="analytics_subscribe",
+                data={
+                    "subscribed": True,
+                    "session_id": session_id,
+                    "subscribed_at": _now_iso()
+                },
+                side_effects=side_effects,
+                metadata={"analytics_subscription": True}
+            )
+            
+        except Exception as e:
+            logger.error(f"[ACTION-PROC] Analytics subscribe action failed: {e}")
+            return ActionResult(
+                success=False,
+                action_type="analytics_subscribe",
+                data={},
+                side_effects=side_effects,
+                error=str(e)
+            )
+
+    async def _handle_analytics_unsubscribe_action(self, msg: Dict[str, Any], user_id: str, session_id: str, current_state: SessionState) -> ActionResult:
+        """Handle analytics unsubscribe request."""
+        side_effects = []
+        
+        try:
+            # Mark session as unsubscribed from analytics
+            self.session_manager.update_activity(
+                session_id,
+                custom_data={"analytics_subscribed": False, "unsubscribed_at": _now_iso()}
+            )
+            side_effects.append("analytics_unsubscription_recorded")
+            
+            # Update buffer manager if available
+            if self.buffer_manager:
+                metadata = {
+                    "analytics_subscribed": False,
+                    "session_id": session_id,
+                    "unsubscribed_at": _now_iso()
+                }
+                self.buffer_manager.update_active_user(
+                    user_id=user_id,
+                    orch_id=session_id,
+                    metadata=metadata
+                )
+                side_effects.append("buffer_unsubscription_updated")
+            
+            return ActionResult(
+                success=True,
+                action_type="analytics_unsubscribe",
+                data={
+                    "subscribed": False,
+                    "session_id": session_id,
+                    "unsubscribed_at": _now_iso()
+                },
+                side_effects=side_effects,
+                metadata={"analytics_subscription": False}
+            )
+            
+        except Exception as e:
+            logger.error(f"[ACTION-PROC] Analytics unsubscribe action failed: {e}")
+            return ActionResult(
+                success=False,
+                action_type="analytics_unsubscribe",
+                data={},
+                side_effects=side_effects,
+                error=str(e)
+            )
+
+    async def _handle_analytics_request_action(self, msg: Dict[str, Any], user_id: str, session_id: str, current_state: SessionState) -> ActionResult:
+        """Handle analytics data request."""
+        side_effects = []
+        
+        try:
+            # Extract request parameters
+            request_data = msg.get("data", {})
+            start_date = request_data.get("start_date")
+            end_date = request_data.get("end_date")
+            
+            # Record analytics request
+            self.session_manager.update_activity(
+                session_id,
+                custom_data={
+                    "last_analytics_request": _now_iso(),
+                    "request_params": request_data
+                }
+            )
+            side_effects.append("analytics_request_recorded")
+            
+            return ActionResult(
+                success=True,
+                action_type="analytics_request",
+                data={
+                    "request_accepted": True,
+                    "session_id": session_id,
+                    "request_params": request_data,
+                    "requested_at": _now_iso()
+                },
+                side_effects=side_effects,
+                metadata={"analytics_request": request_data}
+            )
+            
+        except Exception as e:
+            logger.error(f"[ACTION-PROC] Analytics request action failed: {e}")
+            return ActionResult(
+                success=False,
+                action_type="analytics_request",
                 data={},
                 side_effects=side_effects,
                 error=str(e)

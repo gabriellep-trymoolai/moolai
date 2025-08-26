@@ -5,7 +5,25 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { TrendingUp, TrendingDown, Clock, Target, Loader2, Wifi, WifiOff } from 'lucide-react';
 import { apiClient } from '@/services/api-client';
-import { analyticsWebSocketService, AnalyticsMetrics, AnalyticsConnectionState } from '@/services/analytics-websocket';
+import { useAppSession } from '@/contexts/AppContext';
+
+// Define AnalyticsMetrics interface locally since we removed the analytics-websocket service
+interface AnalyticsMetrics {
+  total_api_calls: number;
+  total_cost: number;
+  cache_hit_rate: number;
+  avg_response_time_ms: number;
+  firewall_blocks: number;
+  provider_breakdown: Array<{
+    provider: string;
+    calls: number;
+    cost: number;
+    tokens: number;
+  }>;
+  data_source?: string;
+  phoenix_available?: boolean;
+  phoenix_connected?: boolean;
+}
 
 interface MetricCardProps {
   title: string;
@@ -19,55 +37,38 @@ interface MetricCardProps {
   isLoading?: boolean;
 }
 
-const MetricCard: React.FC<MetricCardProps> = ({ title, value, icon: Icon, trend, isLoading }) => (
+const MetricCard: React.FC<MetricCardProps> = ({ title, value, icon: IconComponent, trend, isLoading }) => (
   <Card className="p-6 bg-card border-border">
     <div className="space-y-2">
       <p className="text-sm text-muted-foreground">{title}</p>
       <div className="flex items-center gap-2">
-        {isLoading ? (
-          <Loader2 className="h-6 w-6 animate-spin" />
-        ) : (
-          <>
+        <div className="flex items-center gap-2">
+          <IconComponent className="h-5 w-5 text-muted-foreground" />
+          {isLoading ? (
+            <Loader2 className="h-6 w-6 animate-spin" />
+          ) : (
+            <>
             <span className="text-2xl font-bold text-foreground">{value}</span>
-            {trend && (
-              <div className={`flex items-center gap-1 text-sm ${trend.isPositive ? 'text-green-400' : 'text-red-400'}`}>
-                {trend.isPositive ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
-                <span>{trend.description}</span>
-              </div>
-            )}
-          </>
-        )}
+              {trend && (
+                <div className={`flex items-center gap-1 text-sm ${trend.isPositive ? 'text-green-400' : 'text-red-400'}`}>
+                  {trend.isPositive ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
+                  <span>{trend.description}</span>
+                </div>
+              )}
+            </>
+          )}
+        </div>
       </div>
     </div>
   </Card>
 );
 
 export const AnalyticsDashboard: React.FC = () => {
+  const session = useAppSession(); // Use shared session
   const [timeRange, setTimeRange] = useState('30d');
   const [realTimeMetrics, setRealTimeMetrics] = useState<AnalyticsMetrics | null>(null);
-  const [wsConnectionState, setWsConnectionState] = useState<AnalyticsConnectionState>('disconnected');
   const [wsError, setWsError] = useState<string | null>(null);
-
-  // WebSocket connection management
-  useEffect(() => {
-    // Set up WebSocket listeners
-    const unsubscribeState = analyticsWebSocketService.onStateChange(setWsConnectionState);
-    const unsubscribeMetrics = analyticsWebSocketService.onMetricsUpdate(setRealTimeMetrics);
-    const unsubscribeError = analyticsWebSocketService.onError(setWsError);
-
-    // Connect to WebSocket
-    analyticsWebSocketService.connect().catch(error => {
-      console.error('Failed to connect to analytics WebSocket:', error);
-    });
-
-    // Cleanup on unmount
-    return () => {
-      unsubscribeState();
-      unsubscribeMetrics();
-      unsubscribeError();
-      analyticsWebSocketService.disconnect();
-    };
-  }, []);
+  const [isSubscribed, setIsSubscribed] = useState(false);
 
   // Calculate date range based on selection
   const getDateRange = () => {
@@ -75,6 +76,113 @@ export const AnalyticsDashboard: React.FC = () => {
     const start = new Date();
     
     switch (timeRange) {
+      case '1h':
+        start.setHours(end.getHours() - 1);
+        break;
+      case '24h':
+        start.setHours(end.getHours() - 24);
+        break;
+      case '7d':
+        start.setDate(end.getDate() - 7);
+        break;
+      case '30d':
+        start.setDate(end.getDate() - 30);
+        break;
+      case '90d':
+        start.setDate(end.getDate() - 90);
+        break;
+      default:
+        start.setDate(end.getDate() - 30);
+    }
+    
+    return {
+      start: start.toISOString().split('T')[0],
+      end: end.toISOString().split('T')[0]
+    };
+  };
+
+  // WebSocket connection management using shared session
+  useEffect(() => {
+    // Set up WebSocket listeners for analytics using shared session
+    const unsubscribeAnalytics = session.addEventListener('analytics_response', (data) => {
+      console.log('Analytics data received:', data);
+      setRealTimeMetrics(data);
+      setWsError(null); // Clear any previous errors
+    });
+    
+    const unsubscribeError = session.addEventListener('analytics_error', (error) => {
+      console.error('Analytics error received:', error);
+      setWsError(error.error || 'Analytics error');
+    });
+    
+    const unsubscribeConfirmation = session.addEventListener('analytics_subscription_confirmed', (data) => {
+      console.log('Analytics subscription confirmed:', data);
+      setIsSubscribed(data.subscribed || false);
+    });
+    
+    const unsubscribeUnsubscribed = session.addEventListener('analytics_unsubscribed', (data) => {
+      console.log('Analytics unsubscribed:', data);
+      setIsSubscribed(false);
+      setRealTimeMetrics(null);
+    });
+
+    // Subscribe to analytics if session is connected
+    if (session.isConnected && !isSubscribed) {
+      console.log('Subscribing to analytics via session WebSocket');
+      // Use session's sendRawMessage to subscribe to analytics
+      session.sendRawMessage({
+        type: 'analytics_subscribe',
+        data: {
+          metrics: ['overview', 'providers', 'cache'],
+          interval: 30 // 30 second updates
+        }
+      });
+    }
+
+    // Cleanup on unmount
+    return () => {
+      unsubscribeAnalytics();
+      unsubscribeError();
+      unsubscribeConfirmation();
+      unsubscribeUnsubscribed();
+      
+      if (session.isConnected && isSubscribed) {
+        console.log('Unsubscribing from analytics');
+        session.sendRawMessage({
+          type: 'analytics_unsubscribe'
+        });
+      }
+    };
+  }, [session.isConnected, isSubscribed]);
+
+  // Handle time range changes - request new analytics data
+  useEffect(() => {
+    if (session.isConnected && isSubscribed) {
+      const { start, end } = getDateRange();
+      console.log('Requesting analytics data for time range:', timeRange);
+      session.sendRawMessage({
+        type: 'analytics_request',
+        data: {
+          start_date: start,
+          end_date: end,
+          time_range: timeRange
+        }
+      });
+    }
+  }, [timeRange, session.isConnected, isSubscribed]);
+
+  // Calculate date range based on selection (for API calls)
+  const getApiDateRange = () => {
+    const end = new Date();
+    const start = new Date();
+    
+    switch (timeRange) {
+      case '1h':
+        start.setHours(end.getHours() - 1);
+        break;
+      case '24h':
+        start.setHours(end.getHours() - 24);
+        break;
       case '7d':
         start.setDate(end.getDate() - 7);
         break;
@@ -97,19 +205,19 @@ export const AnalyticsDashboard: React.FC = () => {
   // Fetch analytics data
   const { data: analyticsOverview, isLoading: overviewLoading } = useQuery({
     queryKey: ['analytics-overview', timeRange],
-    queryFn: () => apiClient.getAnalyticsOverview(getDateRange()),
+    queryFn: () => apiClient.getAnalyticsOverview(getApiDateRange()),
     refetchInterval: 30000, // Refresh every 30 seconds
   });
 
   const { data: cachePerformance, isLoading: cacheLoading } = useQuery({
     queryKey: ['cache-performance', timeRange],
-    queryFn: () => apiClient.getCachePerformance(getDateRange()),
+    queryFn: () => apiClient.getCachePerformance(getApiDateRange()),
     refetchInterval: 30000,
   });
 
   const { isLoading: providerLoading } = useQuery({
     queryKey: ['provider-breakdown', timeRange],
-    queryFn: () => apiClient.getProviderBreakdown(getDateRange()),
+    queryFn: () => apiClient.getProviderBreakdown(getApiDateRange()),
     refetchInterval: 30000,
   });
 
@@ -122,17 +230,24 @@ export const AnalyticsDashboard: React.FC = () => {
             Analytics Dashboard 📊
             {/* WebSocket Connection Status */}
             <div className="flex items-center gap-2 ml-4">
-              {wsConnectionState === 'connected' ? (
-                <div className="flex items-center gap-1 text-green-500 text-sm">
-                  <Wifi className="h-4 w-4" />
-                  <span>Live</span>
-                </div>
-              ) : wsConnectionState === 'connecting' ? (
+              {session.isConnected ? (
+                isSubscribed ? (
+                  <div className="flex items-center gap-1 text-green-500 text-sm">
+                    <Wifi className="h-4 w-4" />
+                    <span>Live Analytics</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1 text-yellow-500 text-sm">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Subscribing</span>
+                  </div>
+                )
+              ) : session.isConnecting ? (
                 <div className="flex items-center gap-1 text-yellow-500 text-sm">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   <span>Connecting</span>
                 </div>
-              ) : wsConnectionState === 'reconnecting' ? (
+              ) : session.connectionState === 'reconnecting' ? (
                 <div className="flex items-center gap-1 text-orange-500 text-sm">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   <span>Reconnecting</span>
@@ -147,7 +262,10 @@ export const AnalyticsDashboard: React.FC = () => {
           </h1>
           <p className="text-muted-foreground mt-1">
             Track your model usage and compare costs in real-time.
-            {wsError && <span className="text-red-500 ml-2">({wsError})</span>}
+            {wsError && <span className="text-red-500 ml-2">(Error: {wsError})</span>}
+            {realTimeMetrics && realTimeMetrics.data_source && (
+              <span className="text-blue-500 ml-2">(Source: {realTimeMetrics.data_source})</span>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-4">
@@ -156,22 +274,53 @@ export const AnalyticsDashboard: React.FC = () => {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="1h">Last 1 hour</SelectItem>
+              <SelectItem value="24h">Last 24 hours</SelectItem>
               <SelectItem value="7d">Last 7 days</SelectItem>
               <SelectItem value="30d">Last 30 days</SelectItem>
               <SelectItem value="90d">Last 90 days</SelectItem>
             </SelectContent>
           </Select>
           
-          {wsConnectionState !== 'connected' && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => analyticsWebSocketService.connect()}
-              disabled={wsConnectionState === 'connecting'}
-            >
-              {wsConnectionState === 'connecting' ? 'Connecting...' : 'Reconnect'}
-            </Button>
-          )}
+          <div className="flex gap-2">
+            {session.connectionState !== 'connected' && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => session.connect()}
+                disabled={session.connectionState === 'connecting'}
+              >
+                {session.connectionState === 'connecting' ? 'Connecting...' : 'Reconnect'}
+              </Button>
+            )}
+            
+            {session.isConnected && !isSubscribed && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  session.sendRawMessage({
+                    type: 'analytics_subscribe',
+                    data: { metrics: ['overview', 'providers', 'cache'], interval: 30 }
+                  });
+                }}
+              >
+                Subscribe to Analytics
+              </Button>
+            )}
+            
+            {isSubscribed && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  session.sendRawMessage({ type: 'analytics_unsubscribe' });
+                }}
+              >
+                Unsubscribe
+              </Button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -188,7 +337,7 @@ export const AnalyticsDashboard: React.FC = () => {
           }
           icon={Target}
           isLoading={!realTimeMetrics && cacheLoading}
-          trend={realTimeMetrics && wsConnectionState === 'connected' ? undefined : undefined} // Remove trend for now
+          trend={undefined} // Remove trend for now - can be added later
         />
         
         <MetricCard

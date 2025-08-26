@@ -1,0 +1,7 @@
+#!/Users/dinakarmurthy/Desktop/Mooli/Integrated_Code_V5/Mool_AI_System/langfuse_test_env/bin/python3
+import sys
+from tqdm.cli import main
+if __name__ == '__main__':
+    if sys.argv[0].endswith('.exe'):
+        sys.argv[0] = sys.argv[0][:-4]
+    sys.exit(main())

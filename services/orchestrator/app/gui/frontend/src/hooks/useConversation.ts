@@ -51,6 +51,7 @@ export interface ConversationActions {
 }
 
 export interface UseConversationOptions {
+  session: ReturnType<typeof useSession>; // Require session to be passed in
   autoCreateConversation?: boolean;
   defaultConversationName?: string;
   enableAutoResponse?: boolean;
@@ -58,8 +59,9 @@ export interface UseConversationOptions {
   onError?: (error: string) => void;
 }
 
-export function useConversation(options: UseConversationOptions = {}): ConversationState & ConversationActions {
+export function useConversation(options: UseConversationOptions): ConversationState & ConversationActions {
   const {
+    session,
     autoCreateConversation = true,
     defaultConversationName = 'New Chat',
     enableAutoResponse = true,
@@ -67,15 +69,7 @@ export function useConversation(options: UseConversationOptions = {}): Conversat
     onError
   } = options;
 
-  // Session integration
-  const session = useSession({
-    autoConnect: true,
-    autoReconnect: true,
-    onError: (error) => {
-      setLastError(`Session error: ${error}`);
-      onError?.(error);
-    }
-  });
+  // Note: Session management is handled by AppProvider - don't create another connection here
 
   // State management
   const [currentConversation, setCurrentConversation] = useState<Conversation | null>(null);

@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import redis.asyncio as redis
 
 from ..models import get_db
-from ..middleware import LLMMonitoringMiddleware, SystemPerformanceMiddleware
+from ..middleware import SystemPerformanceMiddleware
 # Note: PromptResponseAgent moved to orchestrator service
 
 
@@ -19,19 +19,6 @@ def set_app_state(state):
     global app_state
     app_state = state
 
-
-async def get_monitoring_middleware(
-    db: AsyncSession = Depends(get_db)
-) -> LLMMonitoringMiddleware:
-    """Get monitoring middleware instance."""
-    redis_client = getattr(app_state, 'redis', None) if app_state else None
-    organization_id = os.getenv("DEFAULT_ORG_ID")
-    
-    return LLMMonitoringMiddleware(
-        redis_client=redis_client,
-        db_session=db,
-        organization_id=organization_id
-    )
 
 
 async def get_system_monitoring_middleware(

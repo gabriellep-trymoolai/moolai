@@ -40,6 +40,7 @@ export function AppProvider({ children }: AppProviderProps) {
 
   // Initialize conversation management
   const conversation = useConversation({
+    session, // Pass the single session instance
     autoCreateConversation: true,
     defaultConversationName: 'New Chat',
     enableAutoResponse: true,

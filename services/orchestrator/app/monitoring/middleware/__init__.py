@@ -1,4 +1,3 @@
-from .monitoring import LLMMonitoringMiddleware
 from .system_monitoring import (
     SystemPerformanceMiddleware,
     system_monitoring_context,
@@ -7,7 +6,6 @@ from .system_monitoring import (
 )
 
 __all__ = [
-    "LLMMonitoringMiddleware",
     "SystemPerformanceMiddleware", 
     "system_monitoring_context",
     "SystemMetricsScheduler",

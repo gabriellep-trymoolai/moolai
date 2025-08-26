@@ -166,7 +166,7 @@ export class MoolAIWebSocketService {
     this.log('Connecting to WebSocket...', params);
 
     try {
-      const wsEndpoint = import.meta.env.VITE_WS_ENDPOINT || '/ws/chat';
+      const wsEndpoint = import.meta.env.VITE_WS_ENDPOINT || '/ws/v1/session';
       const url = new URL(wsEndpoint, this.config.baseUrl);
       
       // Add query parameters
@@ -300,6 +300,29 @@ export class MoolAIWebSocketService {
     });
   }
 
+  // Analytics-specific methods
+  public async requestAnalytics(params: {
+    start_date?: string;
+    end_date?: string;
+  } = {}): Promise<any> {
+    return this.sendAndWait({
+      type: 'analytics_request',
+      data: params
+    });
+  }
+
+  public async subscribeToAnalytics(): Promise<void> {
+    return this.sendAndWait({
+      type: 'analytics_subscribe'
+    });
+  }
+
+  public async unsubscribeFromAnalytics(): Promise<void> {
+    return this.sendAndWait({
+      type: 'analytics_unsubscribe'
+    });
+  }
+
   public async joinConversation(conversationId: string): Promise<void> {
     return this.sendAndWait({
       type: 'join_conversation',
@@ -342,6 +365,22 @@ export class MoolAIWebSocketService {
       
       case 'assistant_response':
         this.emit('assistant_response', message.data);
+        break;
+      
+      case 'analytics_response':
+        this.emit('analytics_response', message.data);
+        break;
+      
+      case 'analytics_error':
+        this.emit('analytics_error', message.data);
+        break;
+      
+      case 'analytics_subscription_confirmed':
+        this.emit('analytics_subscription_confirmed', message.data);
+        break;
+      
+      case 'analytics_unsubscribed':
+        this.emit('analytics_unsubscribed', message.data);
         break;
       
       case 'heartbeat_ack':
@@ -428,5 +467,5 @@ export class MoolAIWebSocketService {
 
 // Export singleton instance
 export const webSocketService = new MoolAIWebSocketService({
-  debug: import.meta.env.VITE_DEBUG === 'true'
+  debug: true // Temporarily enable debug logging
 });

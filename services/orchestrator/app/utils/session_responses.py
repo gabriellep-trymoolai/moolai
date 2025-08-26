@@ -22,7 +22,10 @@ class SessionResponseGenerator:
             "send_message": self._create_message_received_response,
             "join_conversation": self._create_conversation_joined_response,
             "heartbeat": self._create_heartbeat_ack_response,
-            "disconnect": self._create_disconnected_response
+            "disconnect": self._create_disconnected_response,
+            "analytics_subscribe": self._create_analytics_subscribe_response,
+            "analytics_unsubscribe": self._create_analytics_unsubscribe_response,
+            "analytics_request": self._create_analytics_request_response
         }
     
     def generate_response(self, 
@@ -245,6 +248,57 @@ class SessionResponseGenerator:
                 "suggested_action": "retry_or_contact_support"
             },
             "source": "system"
+        }
+
+    def _create_analytics_subscribe_response(self,
+                                           base_response: Dict[str, Any],
+                                           action_result: ActionResult,
+                                           original_msg: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate analytics subscription response."""
+        return {
+            **base_response,
+            "type": "ack",
+            "data": {
+                "action": "analytics_subscribe",
+                "subscribed": action_result.data.get("subscribed", True),
+                "session_id": action_result.data.get("session_id"),
+                "status": "success"
+            },
+            "side_effects": action_result.side_effects
+        }
+
+    def _create_analytics_unsubscribe_response(self,
+                                             base_response: Dict[str, Any],
+                                             action_result: ActionResult,
+                                             original_msg: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate analytics unsubscription response."""
+        return {
+            **base_response,
+            "type": "ack",
+            "data": {
+                "action": "analytics_unsubscribe",
+                "subscribed": action_result.data.get("subscribed", False),
+                "session_id": action_result.data.get("session_id"),
+                "status": "success"
+            },
+            "side_effects": action_result.side_effects
+        }
+
+    def _create_analytics_request_response(self,
+                                         base_response: Dict[str, Any],
+                                         action_result: ActionResult,
+                                         original_msg: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate analytics request response."""
+        return {
+            **base_response,
+            "type": "ack",
+            "data": {
+                "action": "analytics_request",
+                "request_accepted": action_result.data.get("request_accepted", True),
+                "session_id": action_result.data.get("session_id"),
+                "status": "success"
+            },
+            "side_effects": action_result.side_effects
         }
 
 # Global response generator instance

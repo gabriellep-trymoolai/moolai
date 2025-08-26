@@ -219,8 +219,8 @@ show_results() {
     
     # Show running containers (if any)
     echo -e "\n${YELLOW}Container Status:${NC}"
-    if docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -q "moolai\|monitoring\|orchestrator\|controller"; then
-        docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "(NAMES|moolai|monitoring|orchestrator|controller)"
+    if docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -q "moolai\|monitoring\|orchestrator\|controller\|phoenix"; then
+        docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "(NAMES|moolai|monitoring|orchestrator|controller|phoenix)"
     else
         echo "No MoolAI containers currently running"
     fi
@@ -279,6 +279,10 @@ echo -e "    → Health Check:            http://localhost:8010/health"
 echo -e "    → Embedded Monitoring:     http://localhost:8010/api/v1/system/metrics"
 echo -e "  - Controller:                http://localhost:9000"
 echo -e "    → Health Check:            http://localhost:9000/health"
+echo -e "  - ${BLUE}🔭 Phoenix AI Observability: http://localhost:6006${NC}"
+echo -e "    → LLM Traces & Spans:      http://localhost:6006"
+echo -e "    → Analytics Dashboard:     http://localhost:6006"
+echo -e "    → OTLP gRPC Collector:     http://localhost:4317"
 echo ""
 echo -e "${BLUE}Development Commands:${NC}"
 echo -e "  View live logs:      ${YELLOW}docker-compose logs -f${NC}"
@@ -292,6 +296,8 @@ echo -e "  Test orchestrator:   ${YELLOW}curl http://localhost:8000/health${NC}"
 echo -e "  Test controller:     ${YELLOW}curl http://localhost:9000/health${NC}"
 echo -e "  Test monitoring:     ${YELLOW}curl http://localhost:8000/api/v1/system/health${NC}"
 echo -e "  Test cache:          ${YELLOW}curl http://localhost:8000/api/v1/cache/stats${NC}"
+echo -e "  Test Phoenix UI:     ${YELLOW}curl http://localhost:6006${NC}"
+echo -e "  Test Phoenix Health: ${YELLOW}wget -qO- http://localhost:6006/ >/dev/null && echo 'Phoenix OK'${NC}"
 echo -e ""
 echo -e "${GREEN}🎉 MoolAI System with Integrated UI is Ready!${NC}"
 echo -e "Open your browser to: ${BLUE}http://localhost:8000${NC}"

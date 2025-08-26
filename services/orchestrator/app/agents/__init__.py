@@ -51,4 +51,4 @@ class PromptResponseService:
         self.organization_id = organization_id
         self.agent = PromptResponseAgent(organization_id=organization_id)
 
-__all__ = ["PromptResponseAgent", "PromptResponseService"]
+__all__ = ["PromptResponseAgent", "PromptResponseService", "generate_llm_response", "QueryRequest", "QueryResponse"]
