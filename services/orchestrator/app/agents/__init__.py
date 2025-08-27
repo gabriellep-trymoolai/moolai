@@ -24,15 +24,18 @@ class PromptResponseAgent:
     async def process_prompt(self, request, db_session=None):
         """Process prompt using the main_response.py implementation"""
         try:
-            # Call the main_response function
-            result = await generate_llm_response(request.query, request.session_id)
+            # Get model from request or use default
+            model = getattr(request, 'model', 'gpt-3.5-turbo')
+            
+            # Call the main_response function with model parameter
+            result = await generate_llm_response(request.query, request.session_id, model=model)
             
             # Return a response object compatible with the API
             class AgentResponse:
-                def __init__(self, result):
+                def __init__(self, result, model):
                     self.prompt_id = f"prompt_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
                     self.response = result.get("answer", "")
-                    self.model = "gpt-3.5-turbo"  # Default model from main_response
+                    self.model = model
                     self.total_tokens = result.get("tokens_used", 0)
                     self.cost = result.get("cost", 0.0)
                     self.latency_ms = result.get("latency_ms", 0)
@@ -41,7 +44,7 @@ class PromptResponseAgent:
                     self.from_cache = result.get("from_cache", False)
                     self.cache_similarity = result.get("similarity", None)
             
-            return AgentResponse(result)
+            return AgentResponse(result, model)
             
         except Exception as e:
             raise Exception(f"Agent processing failed: {str(e)}")

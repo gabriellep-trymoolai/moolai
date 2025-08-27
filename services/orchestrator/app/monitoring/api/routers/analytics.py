@@ -106,23 +106,27 @@ class PhoenixAnalyticsService:
                         s.attributes->'gen_ai'->'request'->>'model' as model_name,
                         s.attributes->'gen_ai'->>'system' as provider,
                         EXTRACT(EPOCH FROM (s.end_time - s.start_time)) * 1000 as duration_ms,
-                        COALESCE(sc.total_cost, 0) as cost
+                        COALESCE(sc.total_cost, 
+                            -- Try MoolAI cost attribute first
+                            COALESCE((s.attributes->'moolai'->>'cost')::FLOAT, 
+                                -- Try nested MoolAI llm cost
+                                COALESCE((s.attributes->'moolai'->'llm'->>'cost')::FLOAT,
+                                    -- Try direct cost attribute
+                                    (s.attributes->>'cost')::FLOAT, 0)
+                            )
+                        ) as cost
                     FROM phoenix.spans s
                     LEFT JOIN phoenix.span_costs sc ON s.id = sc.span_rowid
                     WHERE (
-                        -- Include properly classified spans
-                        s.name ILIKE '%openai%' OR 
-                        s.name ILIKE '%chat%' OR 
-                        s.attributes ? 'gen_ai' OR 
-                        s.span_kind = 'LLM' OR
-                        -- Include UNKNOWN spans that have LLM attributes
-                        (s.name = 'UNKNOWN' AND s.attributes ? 'gen_ai') OR
-                        -- Include spans with LLM/Phoenix classification attributes
-                        s.attributes ? 'llm.system' OR
-                        s.attributes ? 'phoenix.span_type' OR
-                        -- Include vendor-prefixed MoolAI spans (nested JSON)
-                        s.attributes ? 'moolai' OR
-                        s.name LIKE 'moolai.%'
+                        -- Only include actual LLM provider API calls (not internal operations)
+                        (s.name ILIKE 'openai.%' AND s.attributes ? 'gen_ai') OR
+                        (s.name ILIKE 'anthropic.%' AND s.attributes ? 'gen_ai') OR
+                        (s.name ILIKE 'cohere.%' AND s.attributes ? 'gen_ai') OR
+                        -- Include spans with proper LLM provider system classification
+                        (s.attributes->'gen_ai'->>'system' IN ('openai', 'anthropic', 'cohere', 'azure')) OR
+                        -- Include spans with OpenAI-specific attributes
+                        (s.attributes ? 'openai' AND s.attributes ? 'gen_ai')
+                        -- Exclude internal MoolAI operations: moolai.firewall.*, moolai.cache.*, moolai.request.*, etc.
                     )
                         AND s.start_time >= :start_time
                         AND s.start_time <= :end_time
@@ -132,23 +136,43 @@ class PhoenixAnalyticsService:
                         COUNT(*) as total_api_calls,
                         SUM(cost) as total_cost,
                         SUM(COALESCE(total_tokens, 0)) as total_tokens,
-                        AVG(duration_ms)::INTEGER as avg_response_time_ms,
+                        AVG(duration_ms)::INTEGER as avg_response_time_ms
+                    FROM llm_spans
+                    WHERE 1=1  -- Include all LLM spans regardless of token counts
+                ),
+                cache_summary AS (
+                    -- Separate query for cache hits from MoolAI cache spans
+                    -- Use only moolai.cache.lookup spans to avoid double-counting
+                    -- (both cache.lookup and request.process spans have same cache data)
+                    SELECT 
+                        COUNT(*) as total_cache_requests,
+                        COUNT(*) FILTER (WHERE 
+                            (s.attributes->'moolai'->'cache'->>'hit')::boolean = true
+                        ) as cache_hits,
                         CASE 
                             WHEN COUNT(*) > 0 THEN 
                                 (COUNT(*) FILTER (WHERE 
-                                    -- Check for vendor-prefixed cache attributes (nested JSON)
-                                    (llm_spans.attributes->'moolai'->'cache'->>'hit')::boolean = true OR 
-                                    -- Fallback to legacy cache attributes
-                                    (llm_spans.attributes->>'cache.hit')::boolean = true OR 
-                                    (llm_spans.attributes->'cache'->>'hit')::boolean = true
+                                    (s.attributes->'moolai'->'cache'->>'hit')::boolean = true
                                 )) * 100.0 / COUNT(*)
                             ELSE 0 
-                        END as cache_hit_rate,
+                        END as cache_hit_rate
+                    FROM phoenix.spans s
+                    WHERE s.name = 'moolai.cache.lookup'
+                    AND s.start_time >= :start_time
+                    AND s.start_time <= :end_time
+                ),
+                firewall_summary AS (
+                    -- Separate query for firewall blocks from MoolAI firewall spans
+                    -- Use only moolai.firewall.scan spans to avoid double-counting
+                    -- (both firewall.scan and request.process spans have same firewall data)
+                    SELECT 
                         COUNT(*) FILTER (WHERE 
-                            (llm_spans.attributes->'moolai'->'firewall'->>'blocked')::boolean = true
+                            (s.attributes->'moolai'->'firewall'->>'blocked')::boolean = true
                         ) as firewall_blocks
-                    FROM llm_spans
-                    WHERE 1=1  -- Include all LLM spans regardless of token counts
+                    FROM phoenix.spans s
+                    WHERE s.name = 'moolai.firewall.scan'
+                    AND s.start_time >= :start_time
+                    AND s.start_time <= :end_time
                 ),
                 provider_stats AS (
                     SELECT 
@@ -166,8 +190,8 @@ class PhoenixAnalyticsService:
                     s.total_cost,
                     s.total_tokens,
                     s.avg_response_time_ms,
-                    s.cache_hit_rate,
-                    s.firewall_blocks,
+                    c.cache_hit_rate,
+                    f.firewall_blocks,
                     jsonb_agg(
                         jsonb_build_object(
                             'provider', p.provider,
@@ -178,9 +202,11 @@ class PhoenixAnalyticsService:
                         )
                     ) as provider_breakdown
                 FROM analytics_summary s
+                CROSS JOIN cache_summary c
+                CROSS JOIN firewall_summary f
                 CROSS JOIN provider_stats p
                 GROUP BY s.total_api_calls, s.total_cost, s.total_tokens, 
-                         s.avg_response_time_ms, s.cache_hit_rate, s.firewall_blocks;
+                         s.avg_response_time_ms, c.cache_hit_rate, f.firewall_blocks;
             """)
             
             result = await db.execute(query, {
@@ -241,23 +267,27 @@ class PhoenixAnalyticsService:
                         s.attributes->'gen_ai'->'request'->>'model' as model_name,
                         s.attributes->'gen_ai'->>'system' as provider,
                         EXTRACT(EPOCH FROM (s.end_time - s.start_time)) * 1000 as duration_ms,
-                        COALESCE(sc.total_cost, 0) as total_cost
+                        COALESCE(sc.total_cost, 
+                            -- Try MoolAI cost attribute first
+                            COALESCE((s.attributes->'moolai'->>'cost')::FLOAT, 
+                                -- Try nested MoolAI llm cost
+                                COALESCE((s.attributes->'moolai'->'llm'->>'cost')::FLOAT,
+                                    -- Try direct cost attribute
+                                    (s.attributes->>'cost')::FLOAT, 0)
+                            )
+                        ) as total_cost
                     FROM phoenix.spans s
                     LEFT JOIN phoenix.span_costs sc ON s.id = sc.span_rowid
                     WHERE (
-                        -- Include properly classified spans
-                        s.name ILIKE '%openai%' OR 
-                        s.name ILIKE '%chat%' OR 
-                        s.attributes ? 'gen_ai' OR 
-                        s.span_kind = 'LLM' OR
-                        -- Include UNKNOWN spans that have LLM attributes
-                        (s.name = 'UNKNOWN' AND s.attributes ? 'gen_ai') OR
-                        -- Include spans with LLM/Phoenix classification attributes
-                        s.attributes ? 'llm.system' OR
-                        s.attributes ? 'phoenix.span_type' OR
-                        -- Include vendor-prefixed MoolAI spans (nested JSON)
-                        s.attributes ? 'moolai' OR
-                        s.name LIKE 'moolai.%'
+                        -- Only include actual LLM provider API calls (not internal operations)
+                        (s.name ILIKE 'openai.%' AND s.attributes ? 'gen_ai') OR
+                        (s.name ILIKE 'anthropic.%' AND s.attributes ? 'gen_ai') OR
+                        (s.name ILIKE 'cohere.%' AND s.attributes ? 'gen_ai') OR
+                        -- Include spans with proper LLM provider system classification
+                        (s.attributes->'gen_ai'->>'system' IN ('openai', 'anthropic', 'cohere', 'azure')) OR
+                        -- Include spans with OpenAI-specific attributes
+                        (s.attributes ? 'openai' AND s.attributes ? 'gen_ai')
+                        -- Exclude internal MoolAI operations: moolai.firewall.*, moolai.cache.*, moolai.request.*, etc.
                     )
                         AND s.start_time >= :start_time
                         AND s.start_time <= :end_time

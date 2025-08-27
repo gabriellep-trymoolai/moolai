@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { TrendingUp, TrendingDown, Clock, Target, Loader2, Wifi, WifiOff, Shield, AlertTriangle } from 'lucide-react';
+import { TrendingUp, TrendingDown, Clock, Target, Loader2, Wifi, WifiOff, Shield, AlertTriangle, Hash } from 'lucide-react';
 import { apiClient } from '@/services/api-client';
 import { useAppSession } from '@/contexts/AppContext';
 
@@ -11,6 +11,7 @@ import { useAppSession } from '@/contexts/AppContext';
 interface AnalyticsMetrics {
   total_api_calls: number;
   total_cost: number;
+  total_tokens: number;
   cache_hit_rate: number;
   avg_response_time_ms: number;
   firewall_blocks: number;
@@ -386,15 +387,15 @@ export const AnalyticsDashboard: React.FC = () => {
         />
         
         <MetricCard
-          title="Total Cost"
+          title="Total Tokens Used"
           value={
             realTimeMetrics 
-              ? `$${realTimeMetrics.total_cost.toFixed(2)}`
+              ? `${(realTimeMetrics.total_tokens || 0).toLocaleString()} tokens`
               : overviewLoading 
                 ? "Loading..." 
-                : `$${(analyticsOverview?.overview?.total_cost || 0).toFixed(2)}`
+                : `${(analyticsOverview?.overview?.total_tokens || 0).toLocaleString()} tokens`
           }
-          icon={Target}
+          icon={Hash}
           isLoading={!realTimeMetrics && overviewLoading}
         />
       </div>

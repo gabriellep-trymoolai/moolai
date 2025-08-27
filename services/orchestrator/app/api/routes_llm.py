@@ -118,11 +118,12 @@ async def process_llm_prompt(
         
         # Create agent request
         class AgentRequestInternal:
-            def __init__(self, query, session_id):
+            def __init__(self, query, session_id, model="gpt-3.5-turbo"):
                 self.query = query
                 self.session_id = session_id
+                self.model = model
         
-        agent_request = AgentRequestInternal(request.prompt, session_id)
+        agent_request = AgentRequestInternal(request.prompt, session_id, request.model)
         
         # Process with agent (main_response.py handles caching internally)
         agent_response = await agent.process_prompt(agent_request)

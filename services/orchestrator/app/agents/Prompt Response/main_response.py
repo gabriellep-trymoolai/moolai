@@ -197,6 +197,7 @@ if LLMMonitoringMiddleware is not None:
 class QueryRequest(BaseModel):
     query: str
     session_id: Optional[str] = "default"
+    model: Optional[str] = "gpt-3.5-turbo"
 
 class QueryResponse(BaseModel):
     answer: str
@@ -403,7 +404,7 @@ async def firewall_scan(text: str, request_span=None) -> dict:
             logger.error(f"Firewall service error: {e}")
             raise HTTPException(status_code=500, detail=f"Firewall error: {str(e)}")
 
-async def generate_llm_response(query: str, session_id: str = "default", user_id: str = "default_user") -> dict:
+async def generate_llm_response(query: str, session_id: str = "default", user_id: str = "default_user", model: str = "gpt-3.5-turbo") -> dict:
     """Generate LLM response with enhanced Phoenix OpenTelemetry observability and comprehensive tracing"""
     
     # Create root span with vendor-prefixed attributes for comprehensive request tracing
@@ -423,11 +424,11 @@ async def generate_llm_response(query: str, session_id: str = "default", user_id
             request_span.set_attribute("moolai.query.length", len(query))
             request_span.set_attribute("moolai.query.hash", hashlib.md5(query.encode()).hexdigest()[:8])
             
-            return await _generate_llm_response_internal(query, session_id, user_id, request_span)
+            return await _generate_llm_response_internal(query, session_id, user_id, model, request_span)
     else:
-        return await _generate_llm_response_internal(query, session_id, user_id, None)
+        return await _generate_llm_response_internal(query, session_id, user_id, model, None)
 
-async def _generate_llm_response_internal(query: str, session_id: str, user_id: str, request_span) -> dict:
+async def _generate_llm_response_internal(query: str, session_id: str, user_id: str, model: str, request_span) -> dict:
     """Internal LLM response generation with Phoenix tracing context"""
     
     # Firewall scanning with enhanced tracing - MUST be first to protect the system
@@ -525,7 +526,7 @@ async def _generate_llm_response_internal(query: str, session_id: str, user_id: 
                         await monitoring_middleware.track_response(
                             request_context=request_context,
                             response=cache_result["response"],
-                            model="gpt-3.5-turbo",
+                            model=model,
                             cache_hit=True,
                             cache_similarity=cache_similarity
                         )
@@ -536,7 +537,9 @@ async def _generate_llm_response_internal(query: str, session_id: str, user_id: 
                 "answer": cache_result["response"],
                 "session_id": session_id,
                 "from_cache": True,
-                "similarity": cache_result.get("similarity")
+                "similarity": cache_result.get("similarity"),
+                "tokens_used": 0,  # No new tokens used from cache
+                "cost": 0.0        # No cost for cached response
             }
     
     # Generate fresh response from OpenAI with enhanced tracing
@@ -546,17 +549,17 @@ async def _generate_llm_response_internal(query: str, session_id: str, user_id: 
         tracer = trace.get_tracer(__name__)
         with tracer.start_as_current_span("moolai.llm.call") as llm_span:
             # Set LLM call attributes with vendor prefix
-            llm_span.set_attribute("moolai.llm.model", "gpt-3.5-turbo")
+            llm_span.set_attribute("moolai.llm.model", model)
             llm_span.set_attribute("moolai.llm.temperature", 0.2)
             llm_span.set_attribute("moolai.llm.max_tokens", 1000)
             llm_span.set_attribute("moolai.llm.cache_miss", True)
             
             if request_span:
-                request_span.set_attribute("moolai.llm.model", "gpt-3.5-turbo")
+                request_span.set_attribute("moolai.llm.model", model)
                 request_span.set_attribute("moolai.llm.fresh_call", True)
             
             response = await client.chat.completions.create(
-                model="gpt-3.5-turbo",
+                model=model,
                 messages=[
                     {"role": "system", "content": SYSTEM_INSTRUCTION},
                     {"role": "user", "content": query.strip()}
@@ -565,19 +568,43 @@ async def _generate_llm_response_internal(query: str, session_id: str, user_id: 
                 temperature=0.2
             )
             
-            # Set response attributes
+            # Calculate cost using our cost calculator
+            cost = 0.0
+            if hasattr(response, 'usage') and response.usage:
+                try:
+                    # Import cost calculator dynamically
+                    import sys
+                    import os
+                    sys.path.append(os.path.join(os.path.dirname(__file__), '../../monitoring/utils'))
+                    from cost_calculator import calculate_cost
+                    
+                    cost = calculate_cost(
+                        model=model,
+                        input_tokens=response.usage.prompt_tokens or 0,
+                        output_tokens=response.usage.completion_tokens or 0
+                    )
+                    logger.info(f"Calculated cost: ${cost:.6f} for {response.usage.total_tokens} tokens")
+                except Exception as e:
+                    logger.warning(f"Could not calculate cost: {e}")
+                    # Fallback calculation
+                    cost = ((response.usage.prompt_tokens or 0) * 0.0000005 + 
+                           (response.usage.completion_tokens or 0) * 0.0000015)
+            
+            # Set response attributes including cost
             if hasattr(response, 'usage') and response.usage:
                 llm_span.set_attribute("moolai.llm.input_tokens", response.usage.prompt_tokens or 0)
                 llm_span.set_attribute("moolai.llm.output_tokens", response.usage.completion_tokens or 0)
                 llm_span.set_attribute("moolai.llm.total_tokens", response.usage.total_tokens or 0)
+                llm_span.set_attribute("moolai.llm.cost", cost)
                 
                 if request_span:
                     request_span.set_attribute("moolai.tokens.input", response.usage.prompt_tokens or 0)
                     request_span.set_attribute("moolai.tokens.output", response.usage.completion_tokens or 0)
                     request_span.set_attribute("moolai.tokens.total", response.usage.total_tokens or 0)
+                    request_span.set_attribute("moolai.cost", cost)
     else:
         response = await client.chat.completions.create(
-            model="gpt-3.5-turbo",
+            model=model,
             messages=[
                 {"role": "system", "content": SYSTEM_INSTRUCTION},
                 {"role": "user", "content": query.strip()}
@@ -585,6 +612,25 @@ async def _generate_llm_response_internal(query: str, session_id: str, user_id: 
             max_tokens=1000,
             temperature=0.2
         )
+        
+        # Calculate cost even without tracing
+        cost = 0.0
+        if hasattr(response, 'usage') and response.usage:
+            try:
+                import sys
+                import os
+                sys.path.append(os.path.join(os.path.dirname(__file__), '../../monitoring/utils'))
+                from cost_calculator import calculate_cost
+                
+                cost = calculate_cost(
+                    model=model,
+                    input_tokens=response.usage.prompt_tokens or 0,
+                    output_tokens=response.usage.completion_tokens or 0
+                )
+            except Exception:
+                # Fallback calculation
+                cost = ((response.usage.prompt_tokens or 0) * 0.0000005 + 
+                       (response.usage.completion_tokens or 0) * 0.0000015)
     
     answer = response.choices[0].message.content
     
@@ -596,7 +642,7 @@ async def _generate_llm_response_internal(query: str, session_id: str, user_id: 
                 await monitoring_middleware.track_response(
                     request_context=request_context,
                     response=response,
-                    model="gpt-3.5-turbo",
+                    model=model,
                     cache_hit=False,
                     cache_similarity=None
                 )
@@ -608,19 +654,30 @@ async def _generate_llm_response_internal(query: str, session_id: str, user_id: 
         await store_cached_response(query, answer, session_id)
         logger.info(f"Stored fresh response in dedicated LLM cache for session {session_id}")
     
-    return {
+    # Include cost and token information in response
+    result = {
         "answer": answer,
         "session_id": session_id,
         "from_cache": False,
         "similarity": None
     }
+    
+    # Add usage and cost information if available
+    if hasattr(response, 'usage') and response.usage:
+        result["tokens_used"] = response.usage.total_tokens or 0
+        result["prompt_tokens"] = response.usage.prompt_tokens or 0
+        result["completion_tokens"] = response.usage.completion_tokens or 0
+        result["cost"] = cost if 'cost' in locals() else 0.0
+    
+    return result
 
 @app.get("/respond")
 # Phoenix/OpenTelemetry tracing handled automatically
 async def get_response(
     query: str = Query(..., description="User query to get LLM response for"),
     session_id: str = Query("default", description="Session ID for caching"),
-    user_id: str = Query("default_user", description="User ID for monitoring")
+    user_id: str = Query("default_user", description="User ID for monitoring"),
+    model: str = Query("gpt-3.5-turbo", description="LLM model to use")
 ):
     """
     Get LLM response for a user query with caching support and monitoring.
@@ -667,7 +724,7 @@ async def get_response(
                         await monitoring_middleware.track_response(
                             request_context=request_context,
                             response="Request blocked by firewall",
-                            model="gpt-3.5-turbo",
+                            model=model,
                             error=None,
                             cache_hit=False,
                             cache_similarity=None,
@@ -687,7 +744,7 @@ async def get_response(
     
     try:
         result = await asyncio.wait_for(
-            generate_llm_response(query.strip(), session_id, user_id),
+            generate_llm_response(query.strip(), session_id, user_id, model),
             timeout=35.0  # Slightly longer timeout to account for cache calls
         )
         return result
@@ -718,6 +775,7 @@ async def post_response(request: QueryRequest):
     """
     query = request.query
     session_id = request.session_id or "default"
+    model = request.model or "gpt-3.5-turbo"
     
     if not query or not query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
@@ -744,7 +802,7 @@ async def post_response(request: QueryRequest):
     
     try:
         result = await asyncio.wait_for(
-            generate_llm_response(query.strip(), session_id),
+            generate_llm_response(query.strip(), session_id, model=model),
             timeout=35.0  # Slightly longer timeout to account for cache calls
         )
         
@@ -877,7 +935,7 @@ async def evaluate_response_correctness(request: QueryRequest):
     """Evaluate answer correctness for a query-response pair"""
     try:
         # First get the response
-        response_data = await generate_llm_response(request.query, request.session_id)
+        response_data = await generate_llm_response(request.query, request.session_id, model=request.model)
         answer = response_data["answer"]
         
         # Then evaluate it
@@ -898,7 +956,7 @@ async def evaluate_response_relevance(request: QueryRequest):
     """Evaluate answer relevance for a query-response pair"""
     try:
         # First get the response
-        response_data = await generate_llm_response(request.query, request.session_id)
+        response_data = await generate_llm_response(request.query, request.session_id, model=request.model)
         answer = response_data["answer"]
         
         # Then evaluate it
@@ -919,7 +977,7 @@ async def evaluate_response_comprehensive(request: QueryRequest):
     """Run comprehensive evaluation on a query-response pair"""
     try:
         # First get the response
-        response_data = await generate_llm_response(request.query, request.session_id)
+        response_data = await generate_llm_response(request.query, request.session_id, model=request.model)
         answer = response_data["answer"]
         
         # Run all evaluations in parallel

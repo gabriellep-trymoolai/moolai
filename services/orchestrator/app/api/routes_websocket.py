@@ -67,6 +67,7 @@ async def get_live_analytics_data(org_id: str) -> Dict[str, Any]:
             return {
                 "total_api_calls": overview.get('total_api_calls', 0),
                 "total_cost": overview.get('total_cost', 0.0),
+                "total_tokens": overview.get('total_tokens', 0),
                 "cache_hit_rate": overview.get('cache_hit_rate', 0.0),
                 "avg_response_time_ms": overview.get('avg_response_time_ms', 0),
                 "firewall_blocks": overview.get('firewall_blocks', 0),
@@ -77,6 +78,7 @@ async def get_live_analytics_data(org_id: str) -> Dict[str, Any]:
             return {
                 "total_api_calls": 0,
                 "total_cost": 0.0,
+                "total_tokens": 0,
                 "cache_hit_rate": 0.0,
                 "avg_response_time_ms": 0,
                 "firewall_blocks": 0,
@@ -89,6 +91,7 @@ async def get_live_analytics_data(org_id: str) -> Dict[str, Any]:
         return {
             "total_api_calls": 0,
             "total_cost": 0.0,
+            "total_tokens": 0,
             "cache_hit_rate": 0.0,
             "avg_response_time_ms": 0,
             "firewall_blocks": 0,
@@ -266,10 +269,12 @@ async def websocket_unified_session_endpoint(
                         
                         if user_message.strip():
                             # Call the actual LLM agent system
+                            model = message.get("model", "gpt-3.5-turbo")  # Default model
                             agent_result = await generate_llm_response(
                                 query=user_message,
                                 session_id=conversation_id,
-                                user_id=user_id
+                                user_id=user_id,
+                                model=model
                             )
                             
                             # Format the response for WebSocket
@@ -368,6 +373,7 @@ async def websocket_unified_session_endpoint(
                             data = {
                                 "total_api_calls": overview.get('total_api_calls', 0),
                                 "total_cost": overview.get('total_cost', 0.0),
+                                "total_tokens": overview.get('total_tokens', 0),
                                 "cache_hit_rate": overview.get('cache_hit_rate', 0.0),
                                 "avg_response_time_ms": overview.get('avg_response_time_ms', 0),
                                 "firewall_blocks": overview.get('firewall_blocks', 0),
