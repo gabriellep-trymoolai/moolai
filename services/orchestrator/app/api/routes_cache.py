@@ -9,12 +9,19 @@ Integrates with the existing prompt-response agent Redis cache.
 import json
 import time
 from typing import Dict, Any, Optional
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text
+import logging
 
 # Import the existing cache system (prompt-response agent cache)
 from ..services.Caching.cache import RedisCache, settings
 from ..services.Caching.settings import CacheConfig
+from ..db.database import db_manager
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/api/v1/cache", tags=["cache"])
@@ -43,6 +50,11 @@ class CacheEntry(BaseModel):
     label: Optional[str]
 
 
+async def get_orchestrator_db():
+    """Get orchestrator database session where Phoenix data resides."""
+    async for session in db_manager.get_session():
+        yield session
+
 def get_cache() -> RedisCache:
     """Dependency to get cache instance"""
     try:
@@ -54,9 +66,17 @@ def get_cache() -> RedisCache:
 
 
 @router.get("/stats", response_model=CacheStatsResponse)
-async def get_cache_statistics(cache: RedisCache = Depends(get_cache)):
+async def get_cache_statistics(
+    cache: RedisCache = Depends(get_cache),
+    db: AsyncSession = Depends(get_orchestrator_db),
+    time_window_hours: int = 24
+):
     """
     Get comprehensive cache statistics including hit rates and memory usage.
+    Queries Phoenix spans for actual cache request metrics.
+    
+    Args:
+        time_window_hours: Number of hours to look back for cache metrics (default: 24)
     
     Returns:
         CacheStatsResponse: Cache statistics and configuration
@@ -66,29 +86,61 @@ async def get_cache_statistics(cache: RedisCache = Depends(get_cache)):
         if not cache.ping():
             raise HTTPException(status_code=503, detail="Cache service unavailable")
         
-        # Get all cache entries to calculate statistics
+        # Get cache entries count from Redis
         try:
             entries = cache.list_keys()
             total_entries = len(entries)
         except Exception as e:
+            logger.warning(f"Failed to get cache entries: {e}")
             total_entries = 0
-            entries = []
         
-        # Calculate hit rate from Prometheus metrics (if available)
-        # For now, we'll use a basic calculation based on metadata
+        # Query Phoenix for actual cache hit rate metrics
         hit_rate = 0.0
-        total_accesses = 0
-        cache_hits = 0
-        
-        for entry in entries:
-            if isinstance(entry, dict) and 'last_accessed' in entry and 'created_at' in entry:
-                # If last_accessed > created_at, it means cache was hit
-                if entry.get('last_accessed', 0) > entry.get('created_at', 0):
-                    cache_hits += 1
-                total_accesses += 1
-        
-        if total_accesses > 0:
-            hit_rate = cache_hits / total_accesses
+        try:
+            # Calculate time window
+            end_time = datetime.now(timezone.utc)
+            start_time = end_time - timedelta(hours=time_window_hours)
+            
+            # Query Phoenix spans for cache lookup metrics
+            query = text("""
+                WITH cache_lookups AS (
+                    SELECT 
+                        COUNT(*) as total_requests,
+                        COUNT(*) FILTER (WHERE 
+                            (s.attributes->'moolai'->'cache'->>'hit')::boolean = true
+                        ) as cache_hits
+                    FROM phoenix.spans s
+                    WHERE s.name = 'moolai.cache.lookup'
+                    AND s.start_time >= :start_time
+                    AND s.start_time <= :end_time
+                )
+                SELECT 
+                    total_requests,
+                    cache_hits,
+                    CASE 
+                        WHEN total_requests > 0 THEN 
+                            (cache_hits * 100.0 / total_requests)
+                        ELSE 0 
+                    END as hit_rate
+                FROM cache_lookups;
+            """)
+            
+            result = await db.execute(query, {
+                'start_time': start_time,
+                'end_time': end_time
+            })
+            
+            row = result.fetchone()
+            if row:
+                hit_rate = float(row.hit_rate or 0)
+                logger.info(f"Cache metrics from Phoenix: {row.total_requests} requests, {row.cache_hits} hits, {hit_rate:.1f}% hit rate")
+            else:
+                logger.info(f"No cache metrics found in Phoenix for the last {time_window_hours} hours")
+                
+        except Exception as e:
+            logger.error(f"Failed to query Phoenix for cache metrics: {e}")
+            # Prometheus metrics are not needed since Phoenix is our source of truth
+            # The in-memory counters would reset on restart anyway
         
         # Get memory usage info from Redis
         memory_usage = "unknown"
@@ -110,6 +162,7 @@ async def get_cache_statistics(cache: RedisCache = Depends(get_cache)):
         )
         
     except Exception as e:
+        logger.error(f"Failed to get cache statistics: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get cache statistics: {str(e)}")
 
 

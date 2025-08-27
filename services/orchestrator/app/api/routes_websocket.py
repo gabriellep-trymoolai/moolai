@@ -35,8 +35,13 @@ async def get_session_config():
     return session_config
 
 
-async def get_live_analytics_data(org_id: str) -> Dict[str, Any]:
-    """Get current analytics data for broadcasting."""
+async def get_live_analytics_data(org_id: str, time_range: str = '30d') -> Dict[str, Any]:
+    """Get current analytics data for broadcasting.
+    
+    Args:
+        org_id: Organization ID
+        time_range: Time range string ('1h', '24h', '7d', '30d', '90d')
+    """
     try:
         # Import analytics service and database
         from ..monitoring.api.routers.analytics import PhoenixAnalyticsService
@@ -44,9 +49,20 @@ async def get_live_analytics_data(org_id: str) -> Dict[str, Any]:
         
         analytics_service = PhoenixAnalyticsService()
         
-        # Get data for the last 30 days for real-time metrics (matching frontend default)
+        # Calculate time range based on the requested period
         end_date = datetime.now(timezone.utc)
-        start_date = end_date - timedelta(days=30)
+        
+        # Map time range to timedelta
+        if time_range == '1h':
+            start_date = end_date - timedelta(hours=1)
+        elif time_range == '24h':
+            start_date = end_date - timedelta(hours=24)
+        elif time_range == '7d':
+            start_date = end_date - timedelta(days=7)
+        elif time_range == '90d':
+            start_date = end_date - timedelta(days=90)
+        else:  # Default to 30d
+            start_date = end_date - timedelta(days=30)
         
         # Get database session from orchestrator DB manager
         async for db in db_manager.get_session():
@@ -100,7 +116,7 @@ async def get_live_analytics_data(org_id: str) -> Dict[str, Any]:
 
 
 async def broadcast_analytics_to_subscribers():
-    """Broadcast analytics data to all subscribed sessions."""
+    """Broadcast analytics data to all subscribed sessions with their specific time ranges."""
     if not analytics_subscribers:
         return
     
@@ -109,36 +125,51 @@ async def broadcast_analytics_to_subscribers():
         config = get_config()
         org_id = config.get_organization_id() if hasattr(config, 'get_organization_id') else 'org_001'
         
-        analytics_data = await get_live_analytics_data(org_id)
+        # Group subscribers by time range to optimize data fetching
+        time_range_groups = {}
+        for session_id, subscriber_info in analytics_subscribers.items():
+            time_range = subscriber_info.get('time_range', '30d')
+            if time_range not in time_range_groups:
+                time_range_groups[time_range] = []
+            time_range_groups[time_range].append((session_id, subscriber_info))
         
-        # Cache the data
-        analytics_last_data[org_id] = analytics_data
+        # Fetch data for each unique time range
+        analytics_data_by_range = {}
+        for time_range in time_range_groups.keys():
+            analytics_data = await get_live_analytics_data(org_id, time_range)
+            analytics_data_by_range[time_range] = analytics_data
+            # Cache the data
+            analytics_last_data[f"{org_id}_{time_range}"] = analytics_data
         
-        # Broadcast to all subscribers
+        # Broadcast to all subscribers with their respective time range data
         disconnected_sessions = []
         
-        for session_id, subscriber_info in analytics_subscribers.items():
-            try:
-                connection_id = subscriber_info.get('connection_id')
-                if connection_id in active_connections:
-                    websocket = active_connections[connection_id]
-                    
-                    response = {
-                        "type": "analytics_response",
-                        "data": analytics_data,
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                        "session_id": session_id
-                    }
-                    
-                    await websocket.send_text(json.dumps(response))
-                    logger.debug(f"Analytics data sent to session {session_id}")
-                else:
-                    # Connection no longer active
+        for time_range, subscribers in time_range_groups.items():
+            analytics_data = analytics_data_by_range[time_range]
+            
+            for session_id, subscriber_info in subscribers:
+                try:
+                    connection_id = subscriber_info.get('connection_id')
+                    if connection_id in active_connections:
+                        websocket = active_connections[connection_id]
+                        
+                        response = {
+                            "type": "analytics_response",
+                            "data": analytics_data,
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "session_id": session_id,
+                            "time_range": time_range
+                        }
+                        
+                        await websocket.send_text(json.dumps(response))
+                        logger.debug(f"Analytics data sent to session {session_id} with time range {time_range}")
+                    else:
+                        # Connection no longer active
+                        disconnected_sessions.append(session_id)
+                        
+                except Exception as e:
+                    logger.error(f"Error sending analytics to session {session_id}: {e}")
                     disconnected_sessions.append(session_id)
-                    
-            except Exception as e:
-                logger.error(f"Error sending analytics to session {session_id}: {e}")
-                disconnected_sessions.append(session_id)
         
         # Cleanup disconnected sessions
         for session_id in disconnected_sessions:
@@ -338,6 +369,11 @@ async def websocket_unified_session_endpoint(
                         
                         analytics_service = PhoenixAnalyticsService()
                         request_data = message.get("data", {})
+                        time_range = request_data.get("time_range", "30d")
+                        
+                        # Update the time range for this subscriber
+                        if session_id in analytics_subscribers:
+                            analytics_subscribers[session_id]["time_range"] = time_range
                         
                         # Parse dates properly
                         start_date_str = request_data.get("start_date")
@@ -411,22 +447,25 @@ async def websocket_unified_session_endpoint(
                             "user_id": user_id,
                             "connection_id": connection_id,
                             "subscribed_at": datetime.now(timezone.utc).isoformat(),
-                            "subscription_info": message.get("data", {})
+                            "subscription_info": message.get("data", {}),
+                            "time_range": "30d"  # Default time range, will be updated by analytics_request
                         }
                         
                         # Start broadcasting task if not already running
                         await start_analytics_broadcasting()
                         
-                        # Send immediate analytics data
+                        # Send immediate analytics data with default time range
                         config = get_config()
                         current_org_id = config.get_organization_id() if hasattr(config, 'get_organization_id') else 'org_001'
+                        default_time_range = "30d"  # Default time range for initial subscription
                         
-                        # Get cached data or fetch new data
-                        if current_org_id in analytics_last_data:
-                            analytics_data = analytics_last_data[current_org_id]
+                        # Get cached data or fetch new data for the default time range
+                        cache_key = f"{current_org_id}_{default_time_range}"
+                        if cache_key in analytics_last_data:
+                            analytics_data = analytics_last_data[cache_key]
                         else:
-                            analytics_data = await get_live_analytics_data(current_org_id)
-                            analytics_last_data[current_org_id] = analytics_data
+                            analytics_data = await get_live_analytics_data(current_org_id, default_time_range)
+                            analytics_last_data[cache_key] = analytics_data
                         
                         # Send immediate analytics response (not subscription confirmation)
                         response = {
