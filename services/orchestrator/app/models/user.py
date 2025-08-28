@@ -10,12 +10,19 @@ class User(Base):
 	__tablename__ = "users"
 	
 	# Primary key
-	user_id = Column(String(255), primary_key=True)  # Format: "user_001_org_001"
+	id = Column(Integer, primary_key=True, autoincrement=True)
+	user_id = Column(String(255), unique=True, index=True)  # Format: "user_001_org_001"
+	
+	# Azure B2C integration
+	b2c_sub = Column(String(255), unique=True, nullable=True, index=True)  # Azure B2C subject ID
 	
 	# Basic user information
-	username = Column(String(100), unique=True, nullable=False, index=True)
+	username = Column(String(100), unique=True, nullable=True, index=True)
 	email = Column(String(255), unique=True, nullable=False, index=True)
 	full_name = Column(String(255))
+	
+	# User roles and permissions
+	roles = Column(Text, default="[]")  # JSON string of roles
 	
 	# User status and settings
 	is_active = Column(Boolean, default=True, nullable=False)

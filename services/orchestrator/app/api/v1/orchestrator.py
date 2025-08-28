@@ -11,7 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # Import common models and utilities
 import sys
 import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '../../../../../common'))
+# Add workspace root to Python path
+workspace_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../../../'))
+if workspace_root not in sys.path:
+    sys.path.append(workspace_root)
 
 from common.api.models import (
 	APIResponse, HealthResponse, PromptRequest, PromptResponse, 
@@ -30,6 +33,8 @@ from ...services.controller_client import get_controller_client
 
 # Import database
 from ...db.database import get_db
+
+
 
 # Import agent models from main_response.py
 import os
@@ -81,6 +86,7 @@ async def get_controller_registration_status(organization_id: str = Path(...)):
 # ============================================================================
 # AUTHENTICATION & USER MANAGEMENT
 # ============================================================================
+
 
 @router.get("/users", response_model=APIResponse[PaginatedResponse[User]])
 async def list_users(

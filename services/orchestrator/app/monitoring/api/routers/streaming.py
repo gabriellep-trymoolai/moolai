@@ -22,7 +22,14 @@ else:
 	# Fallback for container environment
 	sys.path.append('/app/common')
 
-from realtime import SSEManager, EventBus, EventType
+# Add workspace root to Python path
+import sys
+import os
+workspace_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../../../'))
+if workspace_root not in sys.path:
+    sys.path.append(workspace_root)
+
+from common.realtime import SSEManager, EventBus, EventType
 from ..dependencies import get_system_monitoring_middleware
 
 logger = logging.getLogger(__name__)
