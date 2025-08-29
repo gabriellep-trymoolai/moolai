@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Azure B2C MSAL Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .container { max-width: 800px; }
+        .token { background: #f5f5f5; padding: 10px; border-radius: 5px; margin: 10px 0; font-family: monospace; word-break: break-all; }
+        .error { color: red; }
+        .success { color: green; }
+        button { padding: 10px 20px; margin: 5px; cursor: pointer; }
+        .step { margin: 20px 0; padding: 15px; border-left: 3px solid #007acc; background: #f9f9f9; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔒 Azure B2C MSAL Test</h1>
+        
+        <div class="step">
+            <h3>Step 1: Login with B2C</h3>
+            <button onclick="login()">Login with Azure B2C</button>
+            <div id="loginStatus"></div>
+        </div>
+
+        <div class="step">
+            <h3>Step 2: Get Access Token</h3>
+            <button onclick="getToken()">Get Access Token</button>
+            <div id="tokenStatus"></div>
+            <div id="tokenDisplay"></div>
+        </div>
+
+        <div class="step">
+            <h3>Step 3: Test Backend API</h3>
+            <input type="text" id="backendUrl" value="http://localhost:8000/api/v1/me" style="width: 300px;">
+            <button onclick="testBackend()">Test /me Endpoint</button>
+            <div id="backendStatus"></div>
+        </div>
+
+        <div class="step">
+            <h3>Debug Info</h3>
+            <button onclick="showDebugInfo()">Show Debug Info</button>
+            <div id="debugInfo"></div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@4.21.1/dist/index.min.js"></script>
+    <script>
+        // B2C Configuration (same as your msal.ts)
+        const TENANT = "moolaib2c.onmicrosoft.com";
+        const POLICY = "B2C_1_susi";
+        const SPA_CLIENT_ID = "ac41a9da-ca72-48a3-a468-d9db5b218c4d";
+        const API_CLIENT_ID = "0263d89f-754d-4861-a401-8a44a0611618";
+        
+        const apiScopes = [`api://${API_CLIENT_ID}/access_as_user`];
+        
+        const msalConfig = {
+            auth: {
+                clientId: SPA_CLIENT_ID,
+                authority: `https://${TENANT}.b2clogin.com/${TENANT}/${POLICY}/v2.0`,
+                knownAuthorities: [`${TENANT}.b2clogin.com`],
+                redirectUri: window.location.origin + window.location.pathname,
+                postLogoutRedirectUri: window.location.origin + window.location.pathname,
+            },
+            cache: {
+                cacheLocation: "localStorage",
+                storeAuthStateInCookie: false,
+            },
+        };
+
+        const msal = new window.msal.PublicClientApplication(msalConfig);
+        let currentToken = null;
+
+        // Handle redirect promise on page load
+        msal.handleRedirectPromise().then(response => {
+            if (response) {
+                document.getElementById('loginStatus').innerHTML = '<span class="success">✅ Logged in successfully!</span>';
+                console.log('Login response:', response);
+            }
+        }).catch(error => {
+            document.getElementById('loginStatus').innerHTML = `<span class="error">❌ Login error: ${error.message}</span>`;
+            console.error('Login error:', error);
+        });
+
+        async function login() {
+            try {
+                document.getElementById('loginStatus').innerHTML = '🔄 Redirecting to Azure B2C...';
+                await msal.loginRedirect({
+                    scopes: apiScopes,
+                });
+            } catch (error) {
+                document.getElementById('loginStatus').innerHTML = `<span class="error">❌ Login failed: ${error.message}</span>`;
+            }
+        }
+
+        async function getToken() {
+            try {
+                const accounts = msal.getAllAccounts();
+                if (accounts.length === 0) {
+                    document.getElementById('tokenStatus').innerHTML = '<span class="error">❌ Please login first</span>';
+                    return;
+                }
+
+                document.getElementById('tokenStatus').innerHTML = '🔄 Getting access token...';
+                
+                const result = await msal.acquireTokenSilent({
+                    account: accounts[0],
+                    scopes: apiScopes,
+                });
+
+                currentToken = result.accessToken;
+                document.getElementById('tokenStatus').innerHTML = '<span class="success">✅ Token acquired!</span>';
+                document.getElementById('tokenDisplay').innerHTML = `
+                    <strong>Access Token:</strong>
+                    <div class="token">${currentToken}</div>
+                    <button onclick="copyToken()">Copy Token</button>
+                `;
+                
+                // Store for easy access in console
+                window.B2C_TOKEN = currentToken;
+                console.log('Token stored in window.B2C_TOKEN');
+                
+            } catch (error) {
+                document.getElementById('tokenStatus').innerHTML = `<span class="error">❌ Token error: ${error.message}</span>`;
+                console.error('Token error:', error);
+            }
+        }
+
+        async function testBackend() {
+            if (!currentToken) {
+                document.getElementById('backendStatus').innerHTML = '<span class="error">❌ Please get access token first</span>';
+                return;
+            }
+
+            const url = document.getElementById('backendUrl').value;
+            document.getElementById('backendStatus').innerHTML = '🔄 Testing backend...';
+
+            try {
+                const response = await fetch(url, {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`,
+                        'Content-Type': 'application/json',
+                    },
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    document.getElementById('backendStatus').innerHTML = `
+                        <span class="success">✅ Backend test successful!</span>
+                        <div class="token">${JSON.stringify(data, null, 2)}</div>
+                    `;
+                } else {
+                    const errorText = await response.text();
+                    document.getElementById('backendStatus').innerHTML = `
+                        <span class="error">❌ Backend error (${response.status}): ${errorText}</span>
+                    `;
+                }
+            } catch (error) {
+                document.getElementById('backendStatus').innerHTML = `
+                    <span class="error">❌ Network error: ${error.message}</span>
+                    <br><small>Make sure the backend is running at ${url}</small>
+                `;
+            }
+        }
+
+        function copyToken() {
+            navigator.clipboard.writeText(currentToken);
+            alert('Token copied to clipboard!');
+        }
+
+        function showDebugInfo() {
+            const accounts = msal.getAllAccounts();
+            const debugInfo = {
+                accounts: accounts.length,
+                accountDetails: accounts[0] || 'No account',
+                authority: msalConfig.auth.authority,
+                clientId: msalConfig.auth.clientId,
+                scopes: apiScopes,
+                hasToken: !!currentToken
+            };
+
+            document.getElementById('debugInfo').innerHTML = `
+                <div class="token">${JSON.stringify(debugInfo, null, 2)}</div>
+            `;
+        }
+    </script>
+</body>
+</html>
