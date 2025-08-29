@@ -17,6 +17,7 @@ from .services.controller_client import ensure_controller_registration, cleanup_
 # Import API routers
 from .api.v1.orchestrator import router as orchestrator_router
 from .api.v1.auth import router as auth_router
+from .api.v1.email_verification import router as email_verification_router
 from .api.routes_websocket import router as websocket_router
 from .api.routes_cache import router as cache_router
 from .api.routes_llm import router as llm_router, agents_router
@@ -306,6 +307,7 @@ app.add_middleware(
 # Include API routers
 app.include_router(orchestrator_router, prefix="/api/v1")
 app.include_router(auth_router)     # Auth router already has prefix
+app.include_router(email_verification_router)  # Email verification router already has prefix
 app.include_router(websocket_router)  # WebSocket router has its own /ws prefix
 app.include_router(cache_router)    # Cache router already has prefix
 app.include_router(llm_router)      # LLM router already has prefix
