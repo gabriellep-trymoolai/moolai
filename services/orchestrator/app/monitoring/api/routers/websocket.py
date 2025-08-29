@@ -21,7 +21,7 @@ else:
 	# Fallback for container environment
 	sys.path.append('/app/common')
 
-from realtime import (
+from common.realtime import (
 	WebSocketManager,
 	WebSocketMessage,
 	MessageType,
